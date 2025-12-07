@@ -1,235 +1,257 @@
 import React, { useState } from 'react';
 import { SessionData, FichaContent } from '../types';
-import { generateLatex, copyToClipboard, printSession } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, Download, BookOpen, GraduationCap, Clock, Home, CheckCircle2 } from 'lucide-react';
+import { ExportManager } from '../core/ExportManager';
+import { SessionGenerator } from '../core/SessionGenerator';
+import { copyToClipboard } from '../services/exportService';
+import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X } from 'lucide-react';
 
 interface SessionResultProps {
   data: SessionData;
+  formatId: string;
   onBack: () => void;
 }
 
-const DetailGroup: React.FC<{ label: string; items: string[] }> = ({ label, items }) => (
-  <div className="mb-4 last:mb-0">
-    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</div>
-    <ul className="text-slate-800 text-sm leading-relaxed space-y-1">
-      {items.map((item, idx) => (
-        <li key={idx} className="flex items-start">
-          <span className="mr-2 text-primary">•</span>
-          <span>{item}</span>
-        </li>
-      ))}
-    </ul>
-  </div>
-);
-
-const MaterialsSection: React.FC<{ items: string[] }> = ({ items }) => {
-  if (!items || items.length === 0) return null;
-  return (
-    <div className="mt-4 pt-4 border-t border-slate-100 bg-slate-50/50 -mx-6 px-6 pb-2">
-      <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-        <svg className="w-4 h-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-        Materiales y Recursos
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {items.map((m, i) => (
-          <span key={i} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-white border border-slate-200 text-slate-700 shadow-sm">
-            {m}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+const EditableList: React.FC<{ 
+    items: string[]; 
+    isEditing: boolean; 
+    onChange: (newItems: string[]) => void 
+}> = ({ items, isEditing, onChange }) => {
+    if (isEditing) {
+        return (
+            <textarea 
+                className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-primary focus:border-transparent min-h-[100px]"
+                value={items.join('\n')}
+                onChange={(e) => onChange(e.target.value.split('\n'))}
+            />
+        );
+    }
+    return (
+        <ul className="text-slate-800 text-sm leading-relaxed space-y-1">
+            {items.map((item, idx) => (
+                <li key={idx} className="flex items-start">
+                    <span className="mr-2 text-primary">•</span>
+                    <span>{item}</span>
+                </li>
+            ))}
+        </ul>
+    );
 };
 
-const FichaCard: React.FC<{ title: string; type: 'Aula' | 'Casa'; content: FichaContent }> = ({ title, type, content }) => (
-  <div className="bg-white border border-slate-200 rounded-lg p-6 mb-6 print:break-inside-avoid print:border-2 print:border-slate-300">
-    <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
-        <div>
-            <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${type === 'Aula' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                Ficha de {type}
-            </span>
-            <h3 className="text-lg font-bold text-slate-900 mt-2">{content.titulo}</h3>
+const SectionHeader: React.FC<{ 
+    title: string; 
+    icon: React.ReactNode; 
+    colorClass: string; 
+    onRegenerate?: () => void;
+    isLoading?: boolean;
+}> = ({ title, icon, colorClass, onRegenerate, isLoading }) => (
+    <div className={`px-6 py-3 border-b flex items-center justify-between ${colorClass}`}>
+        <div className="flex items-center gap-2">
+            {icon}
+            <h3 className="font-bold">{title}</h3>
         </div>
+        {onRegenerate && (
+            <button 
+                onClick={onRegenerate}
+                disabled={isLoading}
+                className="p-1.5 rounded-full hover:bg-black/5 text-slate-500 hover:text-primary transition-colors"
+                title="Regenerar sección"
+            >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+        )}
     </div>
-    
-    <div className="mb-4">
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">Instrucciones:</h4>
-        <ul className="list-disc list-inside text-sm text-slate-600 space-y-1">
-            {content.instrucciones.map((inst, i) => <li key={i}>{inst}</li>)}
-        </ul>
-    </div>
-
-    <div>
-        <h4 className="text-sm font-semibold text-slate-700 mb-2">Actividades:</h4>
-        <div className="space-y-3">
-            {content.items.map((item, i) => (
-                <div key={i} className="flex items-start p-3 bg-slate-50 rounded border border-slate-100 print:bg-white print:border-slate-300">
-                    <span className="font-bold text-slate-400 mr-3">{i + 1}.</span>
-                    <span className="text-sm text-slate-800">{item}</span>
-                </div>
-            ))}
-        </div>
-    </div>
-  </div>
 );
 
-const SessionResult: React.FC<SessionResultProps> = ({ data, onBack }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
+  const [data, setData] = useState(initialData);
+  const [isEditing, setIsEditing] = useState(false);
+  const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
+  const [regenerating, setRegenerating] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const handleCopyLatex = () => {
-    const latex = generateLatex(data);
+    const latex = ExportManager.generateLatex(data, formatId);
     copyToClipboard(latex);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handlePrint = (section: 'session' | 'ficha_aula' | 'ficha_casa') => {
+    setPrintSection(section);
+    setTimeout(() => {
+        window.print();
+        setPrintSection('none');
+    }, 100);
+  };
+
+  const handleRegenerate = async (section: keyof SessionData, instructions: string) => {
+    if (!confirm("¿Deseas regenerar esta sección? Se perderán los cambios manuales.")) return;
+    setRegenerating(section);
+    try {
+        const newData = await SessionGenerator.regenerateSection(data, section, instructions);
+        setData(prev => ({ ...prev, [section]: newData }));
+    } catch (e) {
+        alert("Error regenerando sección.");
+    } finally {
+        setRegenerating(null);
+    }
+  };
+
+  // Helper to update deeply nested state
+  const updateSection = (section: keyof SessionData, field: string, value: any) => {
+      setData(prev => ({
+          ...prev,
+          [section]: {
+              ...prev[section] as any,
+              [field]: value
+          }
+      }));
+  };
+
+  const isPrinting = printSection !== 'none';
+  const showSession = !isPrinting || printSection === 'session';
+  const showFichaAula = !isPrinting || printSection === 'ficha_aula';
+  const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
+
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0">
-      {/* Header - Hidden on Print */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm no-print">
-        <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900 transition-colors">
-          <ArrowLeft className="w-5 h-5 mr-1" />
-          <span className="font-medium">Volver</span>
+    <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''}`}>
+      
+      {/* Navbar */}
+      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm no-print">
+        <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900">
+          <ArrowLeft className="w-5 h-5 mr-1" /> Back
         </button>
         <div className="flex items-center gap-2">
-          <button 
-            onClick={handleCopyLatex}
-            className="p-2 text-slate-600 hover:text-primary hover:bg-blue-50 rounded-full transition-colors relative"
-            title="Copiar LaTeX"
-          >
-            {copied ? <CheckCircle2 className="w-5 h-5 text-green-600" /> : <FileJson className="w-5 h-5" />}
-          </button>
-          <button 
-            onClick={printSession}
-            className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <Printer className="w-4 h-4" />
-            <span className="hidden sm:inline">Imprimir / PDF</span>
-            <span className="sm:hidden">PDF</span>
-          </button>
+            <button 
+                onClick={() => setIsEditing(!isEditing)} 
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${isEditing ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+                {isEditing ? <><Save className="w-4 h-4" /> Guardar</> : <><PenSquare className="w-4 h-4" /> Editar</>}
+            </button>
+            <button onClick={handleCopyLatex} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full">
+                <FileJson className={`w-5 h-5 ${copied ? 'text-green-600' : ''}`} />
+            </button>
+            
+            <div className="relative group">
+                <button className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-blue-700">
+                    <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar PDF</span>
+                </button>
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-100 p-1 hidden group-hover:block z-30">
+                    <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Sesión</button>
+                    <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Ficha Aula</button>
+                    <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Ficha Casa</button>
+                </div>
+            </div>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-3xl mx-auto px-4 py-6 print:px-0 print:py-0 print:max-w-none">
         
-        {/* Session Header */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border-none print:mb-4">
-          <div className="inline-block px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wider mb-3">
-            Sesión de Aprendizaje
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-6 leading-tight">
-            {data.sessionTitle}
-          </h1>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs font-semibold uppercase">Área</span>
-              <span className="font-medium text-slate-800">{data.area}</span>
+        {/* SESSION VIEW */}
+        <div className={showSession ? 'block' : 'hidden'}>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border-none">
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">{data.sessionTitle}</h1>
+                <p className="text-slate-500">{data.area} • {data.cycleGrade}</p>
             </div>
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs font-semibold uppercase">Ciclo/Grado</span>
-              <span className="font-medium text-slate-800">{data.cycleGrade}</span>
+
+            <div className="space-y-6">
+                {/* INICIO */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
+                    <SectionHeader 
+                        title="Inicio" 
+                        icon={<Clock className="w-4 h-4" />} 
+                        colorClass="bg-blue-50 text-blue-800 border-blue-100"
+                        onRegenerate={isEditing ? () => handleRegenerate('inicio', 'Cambia la motivación por algo más participativo.') : undefined}
+                        isLoading={regenerating === 'inicio'}
+                    />
+                    <div className="p-6 space-y-4">
+                        <div className="space-y-1">
+                            <span className="text-xs font-bold text-slate-400 uppercase">Motivación</span>
+                            <EditableList items={data.inicio.motivacion} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'motivacion', val)} />
+                        </div>
+                        <div className="space-y-1">
+                            <span className="text-xs font-bold text-slate-400 uppercase">Saberes Previos</span>
+                            <EditableList items={data.inicio.saberesPrevios} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'saberesPrevios', val)} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* DESARROLLO */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
+                    <SectionHeader 
+                        title="Desarrollo" 
+                        icon={<BookOpen className="w-4 h-4" />} 
+                        colorClass="bg-indigo-50 text-indigo-800 border-indigo-100"
+                    />
+                    <div className="p-6">
+                        <div className="space-y-1">
+                            <span className="text-xs font-bold text-slate-400 uppercase">Estrategias</span>
+                            <EditableList items={data.desarrollo.estrategias} isEditing={isEditing} onChange={(val) => updateSection('desarrollo', 'estrategias', val)} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* CIERRE */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
+                    <SectionHeader 
+                        title="Cierre" 
+                        icon={<Clock className="w-4 h-4" />} 
+                        colorClass="bg-slate-50 text-slate-800 border-slate-100"
+                    />
+                    <div className="p-6">
+                        <EditableList items={data.cierre.estrategias} isEditing={isEditing} onChange={(val) => updateSection('cierre', 'estrategias', val)} />
+                    </div>
+                </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-slate-500 text-xs font-semibold uppercase">Docente</span>
-              <span className="font-medium text-slate-800">{data.teacherName}</span>
-            </div>
-          </div>
         </div>
 
-        <h2 className="text-lg font-bold text-slate-800 mb-4 px-1 flex items-center gap-2 print:mb-2">
-            <BookOpen className="w-5 h-5 text-primary" />
-            Secuencia Didáctica
-        </h2>
-
-        {/* Timeline */}
-        <div className="relative space-y-8 pl-4 print:space-y-4 print:pl-0">
-          {/* Vertical Line */}
-          <div className="absolute top-4 left-[1.65rem] bottom-4 w-0.5 bg-slate-200 print:hidden"></div>
-
-          {/* Inicio */}
-          <div className="relative pl-10 print:pl-0 print:break-inside-avoid">
-            <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-white border-4 border-primary shadow-sm z-10 print:hidden"></div>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-2 print:border-slate-300">
-              <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex items-center justify-between print:bg-slate-100">
-                <h3 className="font-bold text-primary">Inicio</h3>
-                <Clock className="w-4 h-4 text-slate-400" />
-              </div>
-              <div className="p-6">
-                <DetailGroup label="Motivación" items={data.inicio.motivacion} />
-                <DetailGroup label="Saberes Previos" items={data.inicio.saberesPrevios} />
-                <DetailGroup label="Conflicto Cognitivo" items={data.inicio.conflictoCognitivo} />
-                <DetailGroup label="Propósito Didáctico" items={data.inicio.propositoDidactico} />
-                <MaterialsSection items={data.inicio.materiales} />
-              </div>
+        {/* FICHA AULA */}
+        <div className={`mt-8 ${showFichaAula ? 'block' : 'hidden'}`}>
+            <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
+                <div className="border-b pb-4 mb-4">
+                    <h2 className="text-xl font-bold">Ficha de Aplicación: Aula</h2>
+                    <p className="text-sm text-slate-500">{data.fichas.aula.titulo}</p>
+                </div>
+                <div className="space-y-4">
+                    {data.fichas.aula.items.map((item, i) => (
+                        <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
+                            <div className="font-bold text-slate-400">{i+1}.</div>
+                            <div className="text-slate-800">{item}</div>
+                        </div>
+                    ))}
+                </div>
             </div>
-          </div>
-
-          {/* Desarrollo */}
-          <div className="relative pl-10 print:pl-0 print:break-inside-avoid">
-            <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-white border-4 border-secondary shadow-sm z-10 print:hidden"></div>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-2 print:border-slate-300">
-              <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex items-center justify-between print:bg-slate-100">
-                <h3 className="font-bold text-secondary">Desarrollo</h3>
-                <Clock className="w-4 h-4 text-slate-400" />
-              </div>
-              <div className="p-6">
-                <DetailGroup label="Estrategias" items={data.desarrollo.estrategias} />
-                <MaterialsSection items={data.desarrollo.materiales} />
-              </div>
-            </div>
-          </div>
-
-          {/* Cierre */}
-          <div className="relative pl-10 print:pl-0 print:break-inside-avoid">
-            <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-white border-4 border-slate-600 shadow-sm z-10 print:hidden"></div>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-2 print:border-slate-300">
-              <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex items-center justify-between print:bg-slate-100">
-                <h3 className="font-bold text-slate-700">Cierre</h3>
-                <Clock className="w-4 h-4 text-slate-400" />
-              </div>
-              <div className="p-6">
-                <DetailGroup label="Estrategias" items={data.cierre.estrategias} />
-                <MaterialsSection items={data.cierre.materiales} />
-              </div>
-            </div>
-          </div>
-
-          {/* Tarea */}
-          <div className="relative pl-10 print:pl-0 print:break-inside-avoid">
-            <div className="absolute left-4 top-4 w-5 h-5 rounded-full bg-white border-4 border-green-500 shadow-sm z-10 print:hidden"></div>
-            <div className="bg-white rounded-xl shadow-sm border border-green-200 overflow-hidden print:shadow-none print:border-2 print:border-green-300">
-              <div className="bg-green-50 px-6 py-3 border-b border-green-100 flex items-center justify-between print:bg-green-100">
-                <h3 className="font-bold text-green-700">Tarea en Casa</h3>
-                <Home className="w-4 h-4 text-green-600" />
-              </div>
-              <div className="p-6">
-                <DetailGroup label="Actividades de Extensión" items={data.tareaCasa.actividades} />
-                <MaterialsSection items={data.tareaCasa.materiales} />
-              </div>
-            </div>
-          </div>
         </div>
 
-        <div className="page-break"></div>
-
-        <h2 className="text-lg font-bold text-slate-800 mt-12 mb-4 px-1 flex items-center gap-2 print:mt-8">
-            <GraduationCap className="w-5 h-5 text-primary" />
-            Fichas de Aplicación
-        </h2>
-
-        <FichaCard title={data.fichas.aula.titulo} type="Aula" content={data.fichas.aula} />
-        
-        <div className="print:mt-8"></div>
-        
-        <FichaCard title={data.fichas.casa.titulo} type="Casa" content={data.fichas.casa} />
-        
-        {/* Footer info for print */}
-        <div className="hidden print:block mt-8 text-center text-xs text-slate-400">
-            Generado con Aula Express • {new Date().toLocaleDateString()}
+        {/* FICHA CASA */}
+        <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
+             <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
+                <div className="border-b pb-4 mb-4">
+                    <h2 className="text-xl font-bold">Ficha de Extensión: Casa</h2>
+                    <p className="text-sm text-slate-500">{data.fichas.casa.titulo}</p>
+                </div>
+                <div className="space-y-4">
+                    {data.fichas.casa.items.map((item, i) => (
+                        <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
+                            <div className="font-bold text-slate-400">{i+1}.</div>
+                            <div className="text-slate-800">{item}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
 
       </div>
+      
+      {/* Hidden style for printing specific sections logic */}
+      <style>{`
+        @media print {
+            body { background: white; }
+            .no-print { display: none !important; }
+            .print-mode .hidden { display: none !important; }
+            .print-mode .block { display: block !important; }
+        }
+      `}</style>
     </div>
   );
 };

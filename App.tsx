@@ -8,9 +8,11 @@ type ViewState = 'home' | 'result';
 function App() {
   const [view, setView] = useState<ViewState>('home');
   const [currentSession, setCurrentSession] = useState<SessionData | null>(null);
+  const [currentFormat, setCurrentFormat] = useState<string>('minedu');
 
-  const handleSessionGenerated = (data: SessionData) => {
+  const handleSessionGenerated = (data: SessionData, formatId: string) => {
     setCurrentSession(data);
+    setCurrentFormat(formatId);
     setView('result');
     window.scrollTo(0, 0);
   };
@@ -23,7 +25,7 @@ function App() {
     <>
       {view === 'home' && <Home onSessionGenerated={handleSessionGenerated} />}
       {view === 'result' && currentSession && (
-        <SessionResult data={currentSession} onBack={handleBack} />
+        <SessionResult data={currentSession} formatId={currentFormat} onBack={handleBack} />
       )}
     </>
   );
