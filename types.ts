@@ -49,6 +49,7 @@ export interface SessionRecord {
   timestamp: number;
   data: SessionData;
   preview: string;
+  formatId: string;
 }
 
 export interface SessionRequest {
@@ -56,4 +57,14 @@ export interface SessionRequest {
   grado: string;
   area: string;
   prompt: string;
+  formatId: string;
+}
+
+export type FormatPackId = 'minedu' | 'compacto' | 'rural';
+
+export interface FormatPack {
+  id: FormatPackId;
+  name: string;
+  description: string;
+  template: string;
 }
