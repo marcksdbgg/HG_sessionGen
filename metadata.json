@@ -1,0 +1,7 @@
+{
+  "name": "Aula Express",
+  "description": "Generador de sesiones de aprendizaje ultra-rápido para docentes peruanos.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
