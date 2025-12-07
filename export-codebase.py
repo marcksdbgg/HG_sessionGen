@@ -2,7 +2,8 @@ from pathlib import Path
 
 # Directories to exclude from the export
 EXCLUDED_DIRS = {'.git', '__pycache__', '.venv', '.idea', '.mypy_cache', '.vscode', '.github', 'node_modules', 
-                '.next', 'out', 'dist', 'coverage', 'README.md','package-lock.json', 'export-codebase.py', 'full_codebase.md'}
+                '.next', 'out', 'dist', 'coverage', 'README.md','package-lock.json', 'export-codebase.py', 
+                'full_codebase.md', 'external-files', 'actual.md'}
 
 # Important files to include even at the root level
 IMPORTANT_CONFIG_FILES = [
@@ -31,6 +32,10 @@ def build_tree(directory: Path, prefix: str = "") -> list:
     return tree_lines
 
 def generate_codebase_markdown(base_path: str = ".", output_file: str = "full_codebase.md"):
+    # delete the output file if it exists
+    if Path(output_file).exists():
+        Path(output_file).unlink()
+    
     base = Path(base_path).resolve()
     
     lines = []

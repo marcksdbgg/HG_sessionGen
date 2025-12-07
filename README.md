@@ -54,28 +54,45 @@ Ejemplo textual de cómo un docente interactúa con la app:
 > "Créame una sesión de aprendizaje para primer grado referente a la decena que en la motivación incluya juegos divertidos para niños de seis años que se diviertan jugando pero al mismo tiempo que ya vayan teniendo idea de la decena. Luego hacer varios ejercicios de decena en juegos y también en escrito en su cuaderno. Que se lleven bien la idea de la decena y luego que desarrollen en el salón una ficha para ver si han aprendido o no y adicional que lleven otra ficha a su casa como extensión."
 
 ## 6. Biblioteca de Prompts
-*(Módulo interno sugerido)*
-- `/prompts/prompt_maestro_es.json`
-- `/prompts/prompt_secundaria.json`
-- `/prompts/prompt_primaria.json`
-- `/prompts/prompt_inicial.json`
-- `/prompts/prompt_fichas.json`
+El módulo de prompts está implementado en el directorio `/prompts/`. La clase `PromptComposer` (`core/PromptComposer.ts`) compone el prompt final combinando:
+
+- `prompt_maestro.json`: Rol base del pedagogo peruano.
+- `prompt_primaria.json`, `prompt_secundaria.json`, `prompt_inicial.json`: Enfoque por nivel.
+- `prompt_fichas.json`: Instrucción para generar fichas.
 
 **Motivo:** Evitas reescribir lógica en el UI. La app solo compone el prompt.
 
-## 7. Configuración de Formatos
-### 7.1 "Format Packs"
-Sistema de plantillas versionadas:
-- `latex_session_v1.tex`
-- `html_view_v1`
-- `json_schema_v1`
+## 7. Mapeo JSON ↔ LaTeX ↔ UI
 
-La app debe permitir seleccionar "estilo de formato" (por ejemplo: "MINEDU clásico", "compacto", "rural simplificado").
+### 7.1 Flujo de Datos
+El formato de salida de la sesión de aprendizaje está basado en la plantilla LaTeX del MINEDU. El flujo es:
 
-### 7.2 Mapeo UI ↔ LaTeX
-Cada placeholder de UI corresponde a un campo JSON.
-- `[Estrategias de Motivación]` ← `inicio.motivacion[]`
-- `[Lista de Materiales]` ← `inicio.materiales[]` + `desarrollo.materiales[]`
+1. **LLM genera JSON**: Gemini devuelve un objeto JSON estructurado según `SESSION_SCHEMA` (`schemas/sessionSchema.ts`).
+2. **UI renderiza JSON**: El componente `SessionResult.tsx` muestra la sesión usando los campos del JSON directamente.
+3. **Exportación a LaTeX**: El `ExportManager.ts` toma el JSON y lo mapea a la plantilla LaTeX para generar el documento imprimible.
+
+### 7.2 Mapeo de Campos JSON a Placeholders LaTeX
+
+| Campo JSON                       | Placeholder LaTeX            |
+|----------------------------------|------------------------------|
+| `sessionTitle`                   | `[NOMBRE DE LA SESIÓN]`      |
+| `area`                           | `[Área Curricular]`          |
+| `cycleGrade`                     | `[Ciclo -- Grado]`           |
+| `teacherName`                    | `[Nombre del Docente]`       |
+| `inicio.motivacion[]`            | `[Estrategias de Motivación]`|
+| `inicio.saberesPrevios[]`        | `[Saberes Previos]`          |
+| `inicio.conflictoCognitivo[]`    | `[Conflicto Cognitivo]`      |
+| `inicio.propositoDidactico[]`    | `[Propósito Didáctico]`      |
+| `inicio.materiales[]`            | `[Materiales]` (Inicio)      |
+| `desarrollo.estrategias[]`       | `[Estrategias de Desarrollo]`|
+| `desarrollo.materiales[]`        | `[Materiales]` (Desarrollo)  |
+| `cierre.estrategias[]`           | `[Estrategias de Cierre]`    |
+| `cierre.materiales[]`            | `[Materiales]` (Cierre)      |
+| `tareaCasa.actividades[]`        | `[Tarea o Trabajo en Casa]`  |
+| `tareaCasa.materiales[]`         | `[Materiales]` (Tarea)       |
+
+### 7.3 Estado de Implementación
+El mapeo está **implementado** en `core/ExportManager.ts`. La función `generateLatex()` toma el objeto `SessionData` y reemplaza los placeholders en la plantilla LaTeX con los valores del JSON, formateando los arrays como listas con `\item`.
 
 ## 8. Arquitectura
 ### 8.1 Versión Demo / Entorno Restringido (Solo Frontend)
@@ -90,8 +107,8 @@ Ideal para mostrar rápido. Encaja con un entorno tipo sandbox SPA.
     - Concurrencia limitada
 
 **Estrategias obligatorias:**
-- Exponential backoff en llamadas a LLM.
-- "Modo offline parcial": cache de plantilla y UI sesiones recientes en local.
+- Exponential backoff en llamadas a LLM (`core/RetryPolicy.ts`).
+- "Modo offline parcial": cache de sesiones recientes en localStorage.
 
 ## 9. Flujos Principales
 ### 9.1 Flujo "Aula Express"
@@ -117,7 +134,7 @@ Ideal para mostrar rápido. Encaja con un entorno tipo sandbox SPA.
 ### 10.1 Home Móvil
 - Botón grande: "Generar sesión"
 - Últimas 3 sesiones
-- Modo rápido/Guiado
+- Selector de Nivel, Grado y Área
 
 ### 10.2 Vista de Resultado de Sesión
 Una vez generada la sesión, la vista debe incluir botones de descarga claros:
