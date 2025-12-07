@@ -121,7 +121,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                 <Sparkles className="w-6 h-6" />
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-                Aula CHAVOOO
+                Aula Express
             </h1>
             <p className="text-slate-500 font-medium">
                 Tu sesión de aprendizaje en segundos.
