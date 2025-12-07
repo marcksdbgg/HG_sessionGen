@@ -25,4 +25,6 @@ dist-ssr
 
 # External files
 ./external-files
+./external-files/*
+external-files
 
