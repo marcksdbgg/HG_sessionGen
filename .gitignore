@@ -22,9 +22,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# External files
-./external-files
-./external-files/*
-external-files
-
