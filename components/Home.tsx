@@ -1,19 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { NIVELES, GRADOS_INICIAL, GRADOS_PRIMARIA, GRADOS_SECUNDARIA, AREAS } from '../constants';
-import { SessionRequest, SessionRecord, SessionData, FormatPackId } from '../types';
+import { SessionRequest, SessionRecord, SessionData } from '../types';
 import { SessionGenerator } from '../core/SessionGenerator';
-import { FormatPackManager } from '../core/FormatPackManager';
-import { Mic, Loader2, Sparkles, History, ArrowRight, Settings2 } from 'lucide-react';
+import { Mic, Loader2, Sparkles, History, ArrowRight } from 'lucide-react';
 
 interface HomeProps {
-  onSessionGenerated: (data: SessionData, formatId: string) => void;
+  onSessionGenerated: (data: SessionData) => void;
 }
 
 const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
   const [nivel, setNivel] = useState(NIVELES[1]);
   const [grado, setGrado] = useState(GRADOS_PRIMARIA[0]);
   const [area, setArea] = useState(AREAS[0]);
-  const [formatId, setFormatId] = useState<FormatPackId>('minedu');
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -81,22 +79,21 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     }, 2500);
 
     try {
-        const request: SessionRequest = { nivel, grado, area, prompt, formatId };
+        const request: SessionRequest = { nivel, grado, area, prompt };
         const data = await SessionGenerator.generate(request);
         
         const newRecord: SessionRecord = {
             id: Date.now().toString(),
             timestamp: Date.now(),
             data,
-            preview: data.sessionTitle,
-            formatId: formatId
+            preview: data.sessionTitle
         };
         const newHistory = [newRecord, ...history].slice(0, 3);
         setHistory(newHistory);
         localStorage.setItem('aula_history', JSON.stringify(newHistory));
         
         clearInterval(interval);
-        onSessionGenerated(data, formatId);
+        onSessionGenerated(data);
     } catch (error) {
         clearInterval(interval);
         alert("Hubo un error. Por favor intenta de nuevo.");
@@ -107,7 +104,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
   };
 
   const loadFromHistory = (record: SessionRecord) => {
-      onSessionGenerated(record.data, record.formatId || 'minedu');
+      onSessionGenerated(record.data);
   };
 
   const getGrades = () => {
@@ -150,15 +147,6 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Área</label>
                     <select value={area} onChange={(e) => setArea(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
                         {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                </div>
-
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 flex items-center gap-1">
-                        <Settings2 className="w-3 h-3" /> Formato de Exportación
-                    </label>
-                    <select value={formatId} onChange={(e) => setFormatId(e.target.value as FormatPackId)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
-                        {FormatPackManager.getAllPacks().map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </div>
 

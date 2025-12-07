@@ -1,6 +1,6 @@
 // Note: Templates are defined as strings to ensure compatibility without specific loaders.
 
-const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
+export const LATEX_TEMPLATE = `\\documentclass[a4paper,11pt]{article}
 \\usepackage[utf8]{inputenc}
 \\usepackage[spanish]{babel}
 \\usepackage{geometry}
@@ -20,7 +20,7 @@ const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
 
 \\begin{center}
     \\textbf{\\Large [NOMBRE_SESION]}\\\\[0.2cm]
-    \\textbf{\\textit{\\small SESIÓN DE APRENDIZAJE - FORMATO MINEDU}}
+    \\textbf{\\textit{\\small SESIÓN DE APRENDIZAJE}}
 \\end{center}
 
 \\vspace{0.3cm}
@@ -89,90 +89,8 @@ const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
 
 \\end{document}`;
 
-const LATEX_COMPACTO = `\\documentclass[a4paper,10pt]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[spanish]{babel}
-\\usepackage{geometry}
-\\usepackage{enumitem}
-\\usepackage{titlesec}
-
-\\geometry{left=1.5cm, right=1.5cm, top=1.5cm, bottom=1.5cm}
-
-\\titleformat{\\section}{\\large\\bfseries}{}{0em}{}[\\titlerule]
-
-\\begin{document}
-
-\\noindent \\textbf{\\large [NOMBRE_SESION]} \\hfill \\textbf{[AREA]} \\\\
-\\small [CICLO_GRADO] | Docente: [DOCENTE]
-
-\\section*{Inicio}
-\\textbf{Motivación:} [MOTIVACION] \\\\
-\\textbf{Saberes Previos:} [SABERES_PREVIOS] \\\\
-\\textbf{Propósito:} [PROPOSITO] \\\\
-\\textit{Materiales:} [MATERIALES_INICIO]
-
-\\section*{Desarrollo}
-[ESTRATEGIAS_DESARROLLO] \\\\
-\\textit{Materiales:} [MATERIALES_DESARROLLO]
-
-\\section*{Cierre}
-[ESTRATEGIAS_CIERRE] \\\\
-\\textit{Reflexión:} [CONFLICTO_COGNITIVO]
-
-\\section*{Tarea}
-[ACTIVIDADES_CASA]
-
-\\end{document}`;
-
-const LATEX_RURAL = `\\documentclass[a4paper,12pt]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[spanish]{babel}
-\\usepackage{geometry}
-
-\\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
-
-\\begin{document}
-
-\\begin{center}
-    \\textbf{\\LARGE [NOMBRE_SESION]}
-\\end{center}
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{Área:} [AREA] \\\\
-\\textbf{Grado:} [CICLO_GRADO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{1. NUESTRO PROPÓSITO:} \\\\
-[PROPOSITO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{2. APRENDEMOS (Inicio):} \\\\
-[MOTIVACION] \\\\
-[SABERES_PREVIOS]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{3. CONSTRUIMOS (Desarrollo):} \\\\
-[ESTRATEGIAS_DESARROLLO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{4. COMPROBAMOS (Cierre):} \\\\
-[ESTRATEGIAS_CIERRE]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{MATERIALES NECESARIOS:} \\\\
-[MATERIALES_INICIO]
-[MATERIALES_DESARROLLO]
-
-\\end{document}`;
-
 export const Templates = {
-  minedu: LATEX_MINEDU,
-  compacto: LATEX_COMPACTO,
-  rural: LATEX_RURAL
+  minedu: LATEX_TEMPLATE,
+  compacto: LATEX_TEMPLATE,
+  rural: LATEX_TEMPLATE,
 };

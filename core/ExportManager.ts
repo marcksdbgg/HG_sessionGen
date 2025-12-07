@@ -1,5 +1,5 @@
-import { SessionData, FormatPackId } from "../types";
-import { FormatPackManager } from "./FormatPackManager";
+import { SessionData } from "../types";
+import { LATEX_TEMPLATE } from "../formats";
 
 export class ExportManager {
   private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
@@ -12,9 +12,8 @@ export class ExportManager {
     return items.join(", ");
   }
 
-  static generateLatex(data: SessionData, formatId: string): string {
-    const pack = FormatPackManager.getPack(formatId);
-    let tex = pack.template;
+  static generateLatex(data: SessionData): string {
+    let tex = LATEX_TEMPLATE;
 
     // Metadata
     tex = tex.replace(/\[NOMBRE_SESION\]/g, data.sessionTitle);

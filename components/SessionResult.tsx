@@ -7,7 +7,6 @@ import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, Pen
 
 interface SessionResultProps {
   data: SessionData;
-  formatId: string;
   onBack: () => void;
 }
 
@@ -62,7 +61,7 @@ const SectionHeader: React.FC<{
     </div>
 );
 
-const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack }) => {
   const [data, setData] = useState(initialData);
   const [isEditing, setIsEditing] = useState(false);
   const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
@@ -70,7 +69,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
   const [copied, setCopied] = useState(false);
 
   const handleCopyLatex = () => {
-    const latex = ExportManager.generateLatex(data, formatId);
+    const latex = ExportManager.generateLatex(data);
     copyToClipboard(latex);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
