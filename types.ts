@@ -1,3 +1,41 @@
+// ========================================
+// Resource Types for Virtual Resources
+// ========================================
+
+export type ResourceKind = 'image' | 'video' | 'organizer' | 'reading' | 'worksheet' | 'other';
+export type ResourceMoment = 'inicio' | 'desarrollo' | 'cierre' | 'tarea' | 'general';
+export type ResourceIntent = 'project' | 'print' | 'copy-to-notebook' | 'demo' | 'homework';
+
+export interface ResourceSource {
+  mode: 'external' | 'generated';
+  providerHint?: string;  // Institution/collection suggested for external
+  queryHint?: string;     // Search query suggested by LLM
+  generationHint?: string; // Generation prompt for AI-generated resources
+}
+
+export interface Resource {
+  id: string;
+  title: string;
+  kind: ResourceKind;
+  moment: ResourceMoment;
+  intent: ResourceIntent;
+  source: ResourceSource;
+  notes?: string; // Pedagogical usage notes
+}
+
+// Enriched resource after resolution
+export interface ResolvedResource extends Resource {
+  status: 'pending' | 'resolved' | 'error';
+  url?: string;
+  thumbnail?: string;
+  attribution?: string;
+  license?: string;
+}
+
+// ========================================
+// Session Types
+// ========================================
+
 export interface SessionBlock {
   motivacion?: string[];
   saberesPrevios?: string[];
@@ -42,6 +80,8 @@ export interface SessionData {
     aula: FichaContent;
     casa: FichaContent;
   };
+  // NEW: Structured virtual resources
+  recursos: Resource[];
 }
 
 export interface SessionRecord {
@@ -56,6 +96,8 @@ export interface SessionRequest {
   grado: string;
   area: string;
   prompt: string;
+  imageBase64?: string;
+  imageMimeType?: string;
 }
 
 export type FormatPackId = 'minedu' | 'compacto' | 'rural';
