@@ -275,10 +275,19 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
             initMermaid();
 
             // Clean and validate mermaid code
-            const cleanCode = organizer.mermaidCode
-                .trim()
-                .replace(/\\n/g, '\n')
-                .replace(/\\"/g, '"');
+            let cleanCode = organizer.mermaidCode
+                .replace(/```mermaid/g, '') // Remove markdown code blocks if present
+                .replace(/```/g, '')
+                .trim();
+                
+            // Fix common issue: quoted newlines literal "\n" which some parsers output
+            cleanCode = cleanCode.replace(/\\n/g, '\n');
+
+            // Fix: Ensure graph declaration is on its own line
+            // e.g., "graph TD A[...]" -> "graph TD\nA[...]"
+            cleanCode = cleanCode.replace(/^(graph|flowchart)\s+([A-Za-z0-9]+)\s+([^\n])/, '$1 $2\n$3');
+            // e.g., "mindmap root((...))" -> "mindmap\nroot((...))"
+            cleanCode = cleanCode.replace(/^mindmap\s+([^\n])/, 'mindmap\n$1');
 
             // Clear previous content
             containerRef.current.innerHTML = '';
@@ -514,7 +523,6 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
 };
 
 export default DiagramRenderer;
-
 ```
 
 ## File: `components\Home.tsx`
@@ -1981,7 +1989,7 @@ export default {
 ## File: `prompts\prompt_recursos.ts`
 ```ts
 export default {
-    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias."
+    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias. PARA MERMAID: 1. SIEMPRE usa comillas dobles para los textos de los nodos (ej: id[\"Texto con (paréntesis)\"]). 2. Asegúrate de que 'graph TD' esté en la PRIMERA línea y los nodos empiecen en la SEGUNDA línea."
 };
 ```
 
@@ -2080,7 +2088,7 @@ export const SESSION_SCHEMA: Schema = {
                     id: { type: Type.STRING },
                     title: { type: Type.STRING },
                     type: { type: Type.STRING, description: "Uno de: mapa-conceptual, mapa-mental, espina-pescado, cuadro-sinoptico, linea-tiempo, diagrama-flujo, diagrama-venn, cruz-esquematica, cuadro-comparativo, arbol-ideas" },
-                    mermaidCode: { type: Type.STRING, description: "Código Mermaid válido y sintácticamente correcto para generar el gráfico." },
+                    mermaidCode: { type: Type.STRING, description: "Código Mermaid graph TD o mindmap. IMPORTANTE: 1. Textos de nodos entre comillas dobles. 2. 'graph TD' debe estar en su propia línea." },
                     description: { type: Type.STRING, description: "Breve explicación del gráfico." },
                     textFallback: { type: Type.STRING, description: "Versión texto plano del gráfico por si falla el render." }
                 },
