@@ -1,21 +1,23 @@
 # 📋 Sync Report: mark/multimodal-input → main
 
-**Generado:** 2025-12-07 22:40:19
+**Generado:** 2025-12-08 16:27:12
 **Rama origen:** `mark/multimodal-input`
 **Rama destino:** `origin/main`
-**Total de cambios:** 15 archivos
+**Total de cambios:** 18 archivos
 
 ---
 
-## ✅ CREAR (3 archivos nuevos)
+## ✅ CREAR (5 archivos nuevos)
 
 Estos archivos NO existen en main. Debes crearlos:
 
 - [ ] `components/DiagramRenderer.tsx`
 - [ ] `components/ResourcesPresenter.tsx`
+- [ ] `prompts/prompt_recursos_resolver.json`
+- [ ] `schemas/resolvedResourceSchema.ts`
 - [ ] `services/ResourceResolver.ts`
 
-## 🔄 ACTUALIZAR (12 archivos modificados)
+## 🔄 ACTUALIZAR (13 archivos modificados)
 
 Estos archivos existen en main pero tienen cambios. Debes reemplazar el contenido:
 
@@ -27,6 +29,7 @@ Estos archivos existen en main pero tienen cambios. Debes reemplazar el contenid
 - [ ] `core/SessionGenerator.ts`
 - [ ] `index.html`
 - [ ] `prompts/index.ts`
+- [ ] `prompts/prompt_primaria.json`
 - [ ] `prompts/prompt_recursos.json`
 - [ ] `schemas/sessionSchema.ts`
 - [ ] `types.ts`
