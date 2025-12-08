@@ -17,7 +17,8 @@ export class ResourceResolver {
         other: 'https://www.google.com/search?q='
     };
 
-    private static readonly IMAGEN_MODEL = 'imagen-3.0-generate-002';
+    // Use a widely available model version or the one specified by Google GenAI docs for v1beta
+    private static readonly IMAGEN_MODEL = 'imagen-3.0-generate-001';
 
     /**
      * Resolve all resources in a session in parallel
@@ -141,12 +142,25 @@ export class ResourceResolver {
         } catch (error) {
             console.error('Image generation failed:', error);
 
-            // Return with error status but provide a placeholder
+            // FALLBACK: If generation fails (e.g. 404 model not found), 
+            // convert to an "External" resource so user can search for it instead.
+            console.log('Falling back to external search for resource:', resource.title);
+
+            const searchBase = this.SEARCH_PROVIDERS.image;
+            const query = resource.source.generationHint || resource.title;
+            const searchUrl = searchBase + encodeURIComponent(query);
+
             return {
                 ...resource,
-                status: 'error',
-                thumbnail: this.getPlaceholderThumbnail(resource.kind),
-                attribution: 'Generación no disponible'
+                status: 'resolved', // Mark as resolved but as search
+                url: searchUrl,
+                thumbnail: this.getPlaceholderThumbnail(resource.kind), // Placeholder
+                attribution: 'Búsqueda sugerida (Imagen IA no disponible)',
+                source: {
+                    ...resource.source,
+                    mode: 'external',
+                    providerHint: 'Google Images'
+                }
             };
         }
     }

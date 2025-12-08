@@ -1,15 +1,30 @@
+#!/usr/bin/env python3
+"""
+export-codebase.py - Exports the codebase to a single Markdown file
+
+Run from anywhere:
+    python external-files/scripts/export-codebase.py
+"""
+
 from pathlib import Path
+import os
+
+# Get the project root (2 levels up from this script's location)
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+
+# Change working directory to project root
+os.chdir(PROJECT_ROOT)
 
 # Directories to exclude from the export
 EXCLUDED_DIRS = {'.git', '__pycache__', '.venv', '.idea', '.mypy_cache', '.vscode', '.github', 'node_modules', 
                 '.next', 'out', 'dist', 'coverage', 'README.md','package-lock.json', 'export-codebase.py', 
-                'full_codebase.md', 'external-files', 'actual.md', 'env.local'}
+                'full_codebase.md', 'external-files', 'actual.md', 'env.local', 'SYNC_REPORT.md'}
 
 # Important files to include even at the root level
 IMPORTANT_CONFIG_FILES = [
     'next.config.mjs', 'next.config.js', 'package.json', 'tsconfig.json', 
-    'tailwind.config.js', 'postcss.config.js', '.env.example', '.eslintrc.json'#,
-    #'README.md'
+    'tailwind.config.js', 'postcss.config.js', '.env.example', '.eslintrc.json'
 ]
 
 def build_tree(directory: Path, prefix: str = "") -> list:
@@ -17,7 +32,6 @@ def build_tree(directory: Path, prefix: str = "") -> list:
     Generates a tree representation of directory structure and files,
     excluding the directories specified in EXCLUDED_DIRS.
     """
-    # Filter and sort directory entries
     entries = sorted(
         [entry for entry in directory.iterdir() if entry.name not in EXCLUDED_DIRS],
         key=lambda e: e.name
@@ -32,30 +46,30 @@ def build_tree(directory: Path, prefix: str = "") -> list:
     return tree_lines
 
 def generate_codebase_markdown(base_path: str = ".", output_file: str = "full_codebase.md"):
-    # delete the output file if it exists
-    if Path(output_file).exists():
-        Path(output_file).unlink()
-    
     base = Path(base_path).resolve()
+    output_path = base / output_file
+    
+    # Delete the output file if it exists
+    if output_path.exists():
+        output_path.unlink()
     
     lines = []
 
-    # Add directory structure to the beginning of the Markdown file
+    # Add directory structure
     lines.append("# Project Structure")
     lines.append("")
     lines.append("```")
-    # Start with the project root name
     lines.append(f"{base.name}/")
     tree_lines = build_tree(base)
     lines.extend(tree_lines)
     lines.append("```")
     lines.append("")
 
-    # Add the codebase content in Markdown
+    # Add the codebase content
     lines.append("# Full Codebase")
     lines.append("")
 
-    # Process all important files at the root level first
+    # Process important config files first
     for filename in IMPORTANT_CONFIG_FILES:
         file_path = base / filename
         if file_path.exists() and file_path.is_file():
@@ -76,13 +90,11 @@ def generate_codebase_markdown(base_path: str = ".", output_file: str = "full_co
             lines.append("```")
             lines.append("")
 
-    # Process all files in project directories (excluding those in EXCLUDED_DIRS)
+    # Process all files in project directories
     for path in sorted(base.glob("**/*")):
-        # Skip excluded directories
         if any(excluded in path.parts for excluded in EXCLUDED_DIRS):
             continue
         
-        # Skip already processed root config files
         if path.parent == base and path.name in IMPORTANT_CONFIG_FILES:
             continue
             
@@ -104,13 +116,13 @@ def generate_codebase_markdown(base_path: str = ".", output_file: str = "full_co
             lines.append("```")
             lines.append("")
 
-    output_path = base / output_file
     try:
+        output_path = SCRIPT_DIR / output_file
         output_path.write_text("\n".join(lines), encoding='utf-8')
         print(f"✅ Code exported to Markdown at: {output_path}")
     except Exception as e:
         print(f"❌ Error writing output file: {e}")
 
-# If the script is run directly 
 if __name__ == "__main__":
+    print(f"📂 Working from project root: {PROJECT_ROOT}")
     generate_codebase_markdown()

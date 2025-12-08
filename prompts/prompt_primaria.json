@@ -6,6 +6,7 @@
     "En 'propositoDidactico' incluye solo un propósito.",
     "El propósito debe estar formulado como producto claro del estudiante e insinuar el organizador visual que se usará.",
     "En materiales incluye una imagen clave del tema y un organizador visual.",
-    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas."
+    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas.",
+    "Genera SIEMPRE un ítem en el arreglo 'organizadores' con código Mermaid válido siguiendo las instrucciones generales."
   ]
 }
