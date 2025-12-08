@@ -23,7 +23,11 @@ function App() {
     <>
       {view === 'home' && <Home onSessionGenerated={handleSessionGenerated} />}
       {view === 'result' && currentSession && (
-        <SessionResult data={currentSession} onBack={handleBack} />
+        <SessionResult 
+          data={currentSession} 
+          formatId="minedu" 
+          onBack={handleBack} 
+        />
       )}
     </>
   );
