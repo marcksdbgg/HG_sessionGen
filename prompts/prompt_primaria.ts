@@ -1,4 +1,4 @@
-{
+export default {
   "focus": "Enfócate en la construcción del conocimiento mediante material concreto, situaciones vivenciales, trabajo colaborativo y andamiaje progresivo. Integra preguntas guiadas y momentos de metacognición simples.",
   "materials": "Material estructurado y no estructurado del entorno, recursos impresos, material manipulativo y recursos digitales breves. Incluye siempre al menos un organizador visual que el estudiante pueda copiar en el cuaderno.",
   "tone": "Motivador, reflexivo y participativo, con instrucciones claras y ejemplos sencillos.",
@@ -8,4 +8,4 @@
     "En materiales incluye una imagen clave del tema y un organizador visual.",
     "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas."
   ]
-}
+};

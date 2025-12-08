@@ -71,7 +71,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     setLoading(true);
     setLoadingText("Interpretando pedido...");
     
-    const messages = ["Estructurando momentos...", "Diseñando estrategias...", "Creando fichas...", "Aplicando formato..."];
+    const messages = ["Estructurando momentos...", "Diseñando estrategias...", "Creando fichas...", "Aplicando formato...", "Generando recursos visuales..."];
     let msgIdx = 0;
     const interval = setInterval(() => {
         setLoadingText(messages[msgIdx % messages.length]);
@@ -88,9 +88,34 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
             data,
             preview: data.sessionTitle
         };
+        
+        // Update state with full data (including images)
         const newHistory = [newRecord, ...history].slice(0, 3);
         setHistory(newHistory);
-        localStorage.setItem('aula_history', JSON.stringify(newHistory));
+        
+        // Prepare lightweight history for localStorage (exclude base64 images)
+        const cleanHistory = newHistory.map(rec => ({
+            ...rec,
+            data: {
+                ...rec.data,
+                resources: {
+                    ...rec.data.resources,
+                    images: rec.data.resources?.images?.map(img => {
+                        // Create a copy without base64Data to save space
+                        const { base64Data, ...rest } = img;
+                        return rest;
+                    }) || []
+                }
+            }
+        }));
+
+        try {
+            localStorage.setItem('aula_history', JSON.stringify(cleanHistory));
+        } catch (e) {
+            console.warn("Could not save to localStorage (quota exceeded?)", e);
+            // Optionally try to save just the latest one if 3 fail, 
+            // but for now catching the error is enough to prevent crash.
+        }
         
         clearInterval(interval);
         onSessionGenerated(data);

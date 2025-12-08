@@ -1,4 +1,4 @@
-{
+export default {
   "focus": "Enfócate en el aprendizaje a través del juego, el movimiento, la exploración sensorial y la comunicación oral. Prioriza rutinas simples, consignas cortas y aprendizaje vivencial.",
   "materials": "Usa materiales grandes, coloridos, manipulables y seguros del entorno inmediato. Incluye siempre recursos visuales simples y lúdicos. Si se sugiere un recurso virtual, descríbelo como material para proyectar o mostrar en pantalla.",
   "tone": "Muy lúdico, cariñoso, paciente y motivador. Evita exceso de tecnicismos.",
@@ -8,4 +8,4 @@
     "En materiales sugiere al menos una imagen generada solo si el pedido es creativo o narrativo infantil.",
     "Si el tema es real y específico, sugiere imágenes externas de referencia sin inventarlas."
   ]
-}
+};
