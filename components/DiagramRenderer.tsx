@@ -91,10 +91,19 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
             initMermaid();
 
             // Clean and validate mermaid code
-            const cleanCode = organizer.mermaidCode
-                .trim()
-                .replace(/\\n/g, '\n')
-                .replace(/\\"/g, '"');
+            let cleanCode = organizer.mermaidCode
+                .replace(/```mermaid/g, '') // Remove markdown code blocks if present
+                .replace(/```/g, '')
+                .trim();
+                
+            // Fix common issue: quoted newlines literal "\n" which some parsers output
+            cleanCode = cleanCode.replace(/\\n/g, '\n');
+
+            // Fix: Ensure graph declaration is on its own line
+            // e.g., "graph TD A[...]" -> "graph TD\nA[...]"
+            cleanCode = cleanCode.replace(/^(graph|flowchart)\s+([A-Za-z0-9]+)\s+([^\n])/, '$1 $2\n$3');
+            // e.g., "mindmap root((...))" -> "mindmap\nroot((...))"
+            cleanCode = cleanCode.replace(/^mindmap\s+([^\n])/, 'mindmap\n$1');
 
             // Clear previous content
             containerRef.current.innerHTML = '';
