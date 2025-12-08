@@ -1,0 +1,146 @@
+🏆 Guía Técnica: Google DeepMind Vibe Coding Hackathon 2025
+Participante: Mark Romero / Nyro Ubicación: Arequipa, Perú Estado: 🟢 COMPETENCIA ACTIVA
+
+📅 Cronograma (Hora Perú / GMT-5)
+Inicio: Viernes 05 Dic, 12:00 PM (Mediodía).
+
+Deadline: Viernes 12 Dic, 6:59 PM.
+
+Tiempo Total: 7 días exactos.
+
+🛠️ Requisitos del Entorno (Mandatorios)
+Herramienta: Únicamente Google AI Studio (Pestaña "Build").
+
+Modelo: Gemini 3 Pro (Preview).
+
+Formato: Web App (SPA) generada por prompt.
+
+📦 Entregables Obligatorios (Checklist de Descalificación)
+Si falta uno, estás fuera.
+
+[ ] 1. Kaggle Writeup: Informe de máx. 250 palabras (Qué, Cómo, Por qué).
+
+[ ] 2. Video Demo: Máximo 2 minutos. Debe ser público (YouTube/X/Loom). El 40% de la nota depende de esto.
+
+[ ] 3. Link de la App: En AI Studio > Share > Publish your app (Settings: Default to full screen).
+
+⚠️ ANÁLISIS PARA DEVS: Limitaciones del Entorno "Build"
+Lectura obligatoria para arquitectura de software. Entiende esto como un "Client-Side Sandbox".
+
+1. Arquitectura & Backend (The "No-Backend" Reality)
+Limitación: No hay servidor de aplicaciones (No Node.js, No Django). Todo el código generado es Frontend (React + Vite + Tailwind) ejecutándose en el navegador del cliente.
+
+Consecuencia: No puedes correr Cron Jobs, WebSockets complejos propietarios, o scripts de procesamiento de video pesados (ffmpeg server-side).
+
+Workaround: Tu "Backend" es la API de Gemini. Delega toda la lógica de negocio al modelo.
+
+2. Base de Datos y Persistencia (Stateless)
+Limitación: NO existe una base de datos integrada. Si refrescas el navegador, el estado se reinicia a cero.
+
+Almacenamiento:
+
+Nativo: localStorage / sessionStorage (Se borra si limpian caché).
+
+Externo: Podrías intentar conectar Firebase/Supabase vía REST API, pero manejar las credenciales y CORS dentro del entorno sandbox es propenso a errores y fugas de seguridad.
+
+Recomendación: Para el Hackathon, asume que la app es efímera. Enfócate en la sesión actual del usuario. Si necesitas guardar algo, genera un JSON que el usuario pueda descargar.
+
+3. Seguridad & API Keys (Riesgo Alto)
+El Problema: Al ser una SPA (Single Page Application), las keys suelen quedar expuestas en el cliente si no tienes cuidado.
+
+En AI Studio:
+
+Mientras editas: AI Studio usa tu cuenta.
+
+Al Publicar (Deploy to Cloud Run): La aplicación usará TU API Key personal para servir a todos los jueces/usuarios que entren.
+
+Riesgo: Si tu app se hace viral durante el concurso, te comerán la cuota o el crédito. Configura límites en Google Cloud Console.
+
+4. Concurrencia y Cuotas (Rate Limits)
+Escenario: 5 jueces abren tu app al mismo tiempo.
+
+Fallo Común: Error 429: Too Many Requests.
+
+Solución: Implementa "Exponential Backoff" o mensajes de error amigables en el UI ("Estamos pensando... espera un segundo") para que la app no parezca rota si la API de Gemini se satura.
+
+5. Flujo de Desarrollo (One-Way)
+Limitación: No hay git push desde tu local hacia AI Studio.
+
+Flujo: Escribes prompt -> AI genera código. Si quieres editar a mano, puedes, pero si luego pides otro cambio al prompt, la AI podría sobrescribir tus cambios manuales si no usas el "Annotation Mode" (marcar solo lo que quieres cambiar).
+---
+🚀 Gemini 3 Pro: Capacidades y Beneficios ("Vibe Coding" Stack)
+Este documento detalla las "habilidades" pre-construidas que puedes invocar simplemente pidiéndolo en el prompt dentro de Google AI Studio. No necesitas configurar APIs externas, todo esto ya vive dentro del modelo.
+
+🎨 1. Visual Powerhouse (Imagen y Video)
+El factor "Wow" para tu video demo de 2 minutos.
+
+🎬 Animación con Veo (Movie Magic):
+
+Beneficio: "Animate images with Veo". Dale vida a imágenes estáticas.
+
+Uso: Sube la foto de un producto o un personaje y crea un anuncio de video dinámico o un avatar que se mueve.
+
+✏️ Edición de Fotos por Prompt (Nano Banana Powered):
+
+Beneficio: "Image Edit Auto". Permite a los usuarios añadir objetos, borrar fondos o cambiar el estilo de una foto escribiendo lo que quieren.
+
+Idea: Una app de diseño de interiores donde subes tu sala y dices "pon un sofá rojo moderno".
+
+🖼️ Generación de Imágenes HQ (Nano Banana Pro):
+
+Beneficio: Genera assets de alta fidelidad, arte conceptual o "héroes" para blogs desde texto.
+
+Control: Aspect Ratio Control te permite definir si quieres formato vertical (Stories) u horizontal (Web) perfectamente.
+
+🎥 Video Generativo (Video Spark):
+
+Beneficio: Convierte posts de blog, guiones o descripciones de productos en clips de video cortos.
+
+Estrategia: Ideal para apps de marketing automatizado.
+
+🌍 2. Grounding: Datos del Mundo Real (Clave para Utilidad)
+Esto diferencia una "demo bonita" de una "app útil".
+
+🗺️ Google Maps Data:
+
+Beneficio: Conecta tu agente a datos reales de mapas. Puede extraer información de lugares, rutas, horarios y direcciones.
+
+Para Arequipa: Una app que planee rutas gastronómicas en Yanahuara verificando si los restaurantes están abiertos ahora.
+
+🔎 Google Search Data:
+
+Beneficio: Tu app no alucina información vieja. Se conecta a resultados en tiempo real para citar noticias recientes, eventos actuales o hacer fact-checking.
+
+🗣️ 3. Voz y Audio (Gemini Live Experience)
+Hacer que la app se sienta humana.
+
+🎙️ Conversational Voice Apps:
+
+Beneficio: Usa la Gemini Live API para crear experiencias donde el usuario habla y la app responde con voz natural, interrupciones y matices.
+
+📝 Transcripción en Tiempo Real (Speech-to-Text):
+
+Beneficio: Transcribe cualquier feed de audio al instante. Útil para actas de reuniones o asistentes médicos.
+
+🔊 Generación de Habla (Audio Spark):
+
+Beneficio: Text-to-Speech de alta calidad para leer artículos o dar instrucciones de navegación.
+
+🧠 4. Inteligencia Profunda y Razonamiento
+El cerebro detrás de la interfaz.
+
+🤔 Thinking Mode (Network Intelligence):
+
+Beneficio: "Think more when needed". Dale tiempo al modelo para "pensar" antes de responder consultas complejas (matemáticas, lógica de programación, planeación estratégica).
+
+⚡ Flash-Lite Speed (Bolt):
+
+Beneficio: Respuestas ultra rápidas usando modelos ligeros (2.5 Flash-Lite). Perfecto para autocompletado inteligente o chats que deben sentirse instantáneos.
+
+👁️ Video Understanding (Video Library):
+
+Beneficio: El modelo puede "ver" videos largos y encontrar momentos clave, generar resúmenes o crear flashcards educativas automáticamente.
+
+📄 Análisis de Documentos (Document Scanner):
+
+Beneficio: Extrae datos estructurados de fotos de recibos, menús o gráficos financieros al instante.
