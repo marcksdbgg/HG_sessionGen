@@ -1,3 +1,3 @@
 export default {
-    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias."
+    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias. PARA MERMAID: 1. SIEMPRE usa comillas dobles para los textos de los nodos (ej: id[\"Texto con (paréntesis)\"]). 2. Asegúrate de que 'graph TD' esté en la PRIMERA línea y los nodos empiecen en la SEGUNDA línea."
 };

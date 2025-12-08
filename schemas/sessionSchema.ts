@@ -76,7 +76,7 @@ export const SESSION_SCHEMA: Schema = {
                     id: { type: Type.STRING },
                     title: { type: Type.STRING },
                     type: { type: Type.STRING, description: "Uno de: mapa-conceptual, mapa-mental, espina-pescado, cuadro-sinoptico, linea-tiempo, diagrama-flujo, diagrama-venn, cruz-esquematica, cuadro-comparativo, arbol-ideas" },
-                    mermaidCode: { type: Type.STRING, description: "Código Mermaid válido y sintácticamente correcto para generar el gráfico." },
+                    mermaidCode: { type: Type.STRING, description: "Código Mermaid graph TD o mindmap. IMPORTANTE: 1. Textos de nodos entre comillas dobles. 2. 'graph TD' debe estar en su propia línea." },
                     description: { type: Type.STRING, description: "Breve explicación del gráfico." },
                     textFallback: { type: Type.STRING, description: "Versión texto plano del gráfico por si falla el render." }
                 },
