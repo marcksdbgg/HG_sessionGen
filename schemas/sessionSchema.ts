@@ -1,5 +1,45 @@
 import { Type, Schema } from "@google/genai";
 
+// Resource schema for structured virtual resources
+const RESOURCE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    id: { type: Type.STRING, description: "Unique identifier for the resource (e.g., 'img-inicio-1', 'video-desarrollo-1')" },
+    title: { type: Type.STRING, description: "Brief descriptive title of the resource" },
+    kind: {
+      type: Type.STRING,
+      enum: ["image", "video", "organizer", "reading", "worksheet", "other"],
+      description: "Type of resource"
+    },
+    moment: {
+      type: Type.STRING,
+      enum: ["inicio", "desarrollo", "cierre", "tarea", "general"],
+      description: "Which moment of the session this resource belongs to"
+    },
+    intent: {
+      type: Type.STRING,
+      enum: ["project", "print", "copy-to-notebook", "demo", "homework"],
+      description: "How the resource is intended to be used"
+    },
+    source: {
+      type: Type.OBJECT,
+      properties: {
+        mode: {
+          type: Type.STRING,
+          enum: ["external", "generated"],
+          description: "'external' for real resources from institutions, 'generated' for AI-generated content"
+        },
+        providerHint: { type: Type.STRING, description: "Institution, museum, or collection suggested (for external mode)" },
+        queryHint: { type: Type.STRING, description: "Search term suggested to find the resource (for external mode)" },
+        generationHint: { type: Type.STRING, description: "Brief prompt to generate the resource (for generated mode, only for creative/fictional content)" }
+      },
+      required: ["mode"]
+    },
+    notes: { type: Type.STRING, description: "Pedagogical usage notes for the teacher" }
+  },
+  required: ["id", "title", "kind", "moment", "intent", "source"]
+};
+
 export const SESSION_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -66,6 +106,12 @@ export const SESSION_SCHEMA: Schema = {
       },
       required: ["aula", "casa"],
     },
+    // NEW: Structured virtual resources
+    recursos: {
+      type: Type.ARRAY,
+      items: RESOURCE_SCHEMA,
+      description: "Array of virtual resources for the session: images, videos, organizers, readings. Include at least one organizer and 2-3 supporting resources."
+    }
   },
-  required: ["sessionTitle", "area", "cycleGrade", "teacherName", "inicio", "desarrollo", "cierre", "tareaCasa", "fichas"],
+  required: ["sessionTitle", "area", "cycleGrade", "teacherName", "inicio", "desarrollo", "cierre", "tareaCasa", "fichas", "recursos"],
 };

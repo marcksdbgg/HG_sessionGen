@@ -3,13 +3,13 @@ import { SessionData, FichaContent } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check } from 'lucide-react';
+import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check, Play, Layout } from 'lucide-react';
 import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 
 interface SessionResultProps {
     data: SessionData;
-    formatId: string;
     onBack: () => void;
+    onViewResources?: () => void;
 }
 
 // Tooltip component for better UX
@@ -82,7 +82,7 @@ const SectionHeader: React.FC<{
     </div>
 );
 
-const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack, onViewResources }) => {
     const [data, setData] = useState(initialData);
     const [isEditing, setIsEditing] = useState(false);
     const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
@@ -142,7 +142,18 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                 <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900 font-medium">
                     <ArrowLeft className="w-5 h-5 mr-1" /> Volver
                 </button>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                    {/* VIEW RESOURCES - Primary CTA */}
+                    {onViewResources && (
+                        <button
+                            onClick={onViewResources}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                        >
+                            <Play className="w-4 h-4" />
+                            <span className="hidden sm:inline">Ver Recursos</span>
+                        </button>
+                    )}
+
                     {/* EDIT BUTTON - Larger and more prominent */}
                     <Tooltip text={isEditing ? "Guardar cambios" : "Editar contenido de la sesión"}>
                         <button
