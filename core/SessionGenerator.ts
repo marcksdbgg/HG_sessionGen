@@ -2,8 +2,10 @@ import { ai } from "../services/geminiService";
 import { SESSION_SCHEMA } from "../schemas/sessionSchema";
 import { PromptComposer } from "./PromptComposer";
 import { RetryPolicy } from "./RetryPolicy";
-import { SessionData, SessionRequest } from "../types";
+import { SessionData, SessionRequest, Resource } from "../types";
 import { Type } from "@google/genai";
+import { RESOLVED_RESOURCES_RESPONSE_SCHEMA } from "../schemas/resolvedResourceSchema";
+import recursosResolver from "../prompts/prompt_recursos_resolver.json";
 
 export class SessionGenerator {
   private static retryPolicy = new RetryPolicy();
@@ -85,6 +87,37 @@ export class SessionGenerator {
       if (!jsonText) throw new Error("Empty regeneration response");
       const parsed = JSON.parse(jsonText);
       return parsed[sectionKey];
+    });
+  }
+
+  /**
+   * Second LLM call: Resolve resources with direct URLs
+   * Takes the generated recursos array and asks LLM to provide direct URLs
+   */
+  static async resolveResourcesWithLLM(recursos: Resource[], sessionTitle: string, nivel: string): Promise<any> {
+    if (!recursos || recursos.length === 0) {
+      return { resolvedResources: [] };
+    }
+
+    // Build context for LLM
+    const contextPrompt = `${recursosResolver.role}\n${recursosResolver.task}\n\n`;
+    const instructions = recursosResolver.instructions.join("\n");
+
+    const prompt = `${contextPrompt}\n${instructions}\n\nSESSION TITLE: ${sessionTitle}\nEDUCATIONAL LEVEL: ${nivel}\n\nRESOURCES TO RESOLVE:\n${JSON.stringify(recursos, null, 2)}\n\nFor each resource, provide a direct URL to the actual content (image or video). DO NOT provide search URLs. Use trusted educational sources like:\n- Wikimedia Commons for images\n- YouTube (embed format: https://www.youtube.com/embed/VIDEO_ID) for videos\n- NASA, National Geographic, educational institutions\n\nIf the resource is creative/fictional, mark mode='generated' so it can be created with AI later.\n\nProvide the response in the specified schema format with resolvedResources array.`;
+
+    return this.retryPolicy.execute(async () => {
+      const response = await ai.models.generateContent({
+        model: this.modelId,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: RESOLVED_RESOURCES_RESPONSE_SCHEMA
+        }
+      });
+
+      const jsonText = response.text;
+      if (!jsonText) throw new Error("Empty resource resolution response");
+      return JSON.parse(jsonText);
     });
   }
 }

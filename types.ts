@@ -38,6 +38,10 @@ export interface ResourceSource {
   providerHint?: string;  // Institution/collection suggested for external
   queryHint?: string;     // Search query suggested by LLM
   generationHint?: string; // Generation prompt for AI-generated resources
+  // NEW: Fields populated by second LLM call
+  resolvedUrl?: string;    // Direct URL to the actual resource
+  thumbnailUrl?: string;   // Direct URL to thumbnail (for videos)
+  sourceName?: string;     // Name of the source (e.g., "Wikimedia Commons", "NASA")
 }
 
 export interface Resource {

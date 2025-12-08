@@ -30,8 +30,10 @@ HG_sessionGen/
 │   ├── prompt_maestro.json
 │   ├── prompt_primaria.json
 │   ├── prompt_recursos.json
+│   ├── prompt_recursos_resolver.json
 │   └── prompt_secundaria.json
 ├── schemas
+│   ├── resolvedResourceSchema.ts
 │   └── sessionSchema.ts
 ├── services
 │   ├── ResourceResolver.ts
@@ -147,21 +149,22 @@ import React, { useState } from 'react';
 import Home from './components/Home';
 import SessionResult from './components/SessionResult';
 import ResourcesPresenter from './components/ResourcesPresenter';
-import { SessionData } from './types';
+import { SessionData, ResolvedResource } from './types';
 
 type ViewState = 'home' | 'result' | 'resources';
 
 interface SessionContext {
   data: SessionData;
   nivel: string;
+  resourceResolutionPromise?: Promise<ResolvedResource[]>;
 }
 
 function App() {
   const [view, setView] = useState<ViewState>('home');
   const [sessionContext, setSessionContext] = useState<SessionContext | null>(null);
 
-  const handleSessionGenerated = (data: SessionData, nivel?: string) => {
-    setSessionContext({ data, nivel: nivel || 'Primaria' });
+  const handleSessionGenerated = (data: SessionData, nivel?: string, resourcePromise?: Promise<ResolvedResource[]>) => {
+    setSessionContext({ data, nivel: nivel || 'Primaria', resourceResolutionPromise: resourcePromise });
     setView('result');
     window.scrollTo(0, 0);
   };
@@ -194,6 +197,7 @@ function App() {
         <ResourcesPresenter
           data={sessionContext.data}
           nivel={sessionContext.nivel}
+          resourceResolutionPromise={sessionContext.resourceResolutionPromise}
           onBack={handleBackToResult}
         />
       )}
@@ -546,12 +550,13 @@ export default DiagramRenderer;
 ```tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NIVELES, GRADOS_INICIAL, GRADOS_PRIMARIA, GRADOS_SECUNDARIA, AREAS } from '../constants';
-import { SessionRequest, SessionRecord, SessionData } from '../types';
 import { SessionGenerator } from '../core/SessionGenerator';
+import { ResourceResolver } from '../services/ResourceResolver';
+import { SessionData, ResolvedResource, SessionRequest, SessionRecord } from '../types';
 import { Mic, MicOff, Loader2, Sparkles, History, ArrowRight, Camera, X, Image as ImageIcon, Upload } from 'lucide-react';
 
 interface HomeProps {
-    onSessionGenerated: (data: SessionData, nivel?: string) => void;
+    onSessionGenerated: (data: SessionData, nivel?: string, resourcePromise?: Promise<ResolvedResource[]>) => void;
 }
 
 const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
@@ -731,6 +736,42 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
 
             const data = await SessionGenerator.generate(request);
 
+            // SECOND LLM CALL: Resolve resources with direct URLs
+            if (data.recursos && data.recursos.length > 0) {
+                setLoadingText("Buscando recursos educativos...");
+                try {
+                    const resolved = await SessionGenerator.resolveResourcesWithLLM(
+                        data.recursos,
+                        data.sessionTitle,
+                        nivel
+                    );
+
+                    // Merge resolved URLs back into recursos
+                    if (resolved.resolvedResources) {
+                        data.recursos = data.recursos.map(resource => {
+                            const resolvedItem = resolved.resolvedResources.find(
+                                (r: any) => r.id === resource.id
+                            );
+                            if (resolvedItem) {
+                                return {
+                                    ...resource,
+                                    source: {
+                                        ...resource.source,
+                                        resolvedUrl: resolvedItem.resolvedUrl,
+                                        thumbnailUrl: resolvedItem.thumbnailUrl,
+                                        sourceName: resolvedItem.sourceName
+                                    }
+                                };
+                            }
+                            return resource;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to resolve resources with LLM:', error);
+                    // Continue without resolved URLs
+                }
+            }
+
             const newRecord: SessionRecord = {
                 id: Date.now().toString(),
                 timestamp: Date.now(),
@@ -741,8 +782,11 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
             setHistory(newHistory);
             localStorage.setItem('aula_history', JSON.stringify(newHistory));
 
+            // Start resolving resources immediately (prefetching / Instagram trick)
+            const resourcePromise = ResourceResolver.resolveAll(data.recursos || [], nivel);
+
             clearInterval(interval);
-            onSessionGenerated(data, nivel);
+            onSessionGenerated(data, nivel, resourcePromise);
         } catch (error) {
             clearInterval(interval);
             alert("Hubo un error. Por favor intenta de nuevo.");
@@ -1010,6 +1054,7 @@ import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 interface ResourcesPresenterProps {
     data: SessionData;
     nivel?: string;
+    resourceResolutionPromise?: Promise<ResolvedResource[]>;
     onBack: () => void;
 }
 
@@ -1228,7 +1273,7 @@ const FichaCard: React.FC<{
     );
 };
 
-const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = 'Primaria', onBack }) => {
+const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = 'Primaria', resourceResolutionPromise, onBack }) => {
     const [activeFilter, setActiveFilter] = useState<ResourceMoment | 'all' | 'fichas'>('all');
     const [kindFilter, setKindFilter] = useState<ResourceKind | 'all'>('all');
     const [fullscreenResource, setFullscreenResource] = useState<ResolvedResource | null>(null);
@@ -1243,6 +1288,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
     const recursos = data.recursos || [];
 
     // Resolve resources on mount
+    // Resolve resources on mount or use promise
     useEffect(() => {
         if (recursos.length === 0) return;
 
@@ -1251,7 +1297,11 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
             setResolveError(null);
 
             try {
-                const resolved = await ResourceResolver.resolveAll(recursos, nivel);
+                // If we have a pre-calculated promise from Home/App, use it
+                const resolved = resourceResolutionPromise
+                    ? await resourceResolutionPromise
+                    : await ResourceResolver.resolveAll(recursos, nivel || 'Primaria');
+
                 setResolvedResources(resolved);
             } catch (error) {
                 console.error('Failed to resolve resources:', error);
@@ -1264,7 +1314,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
         };
 
         resolveResources();
-    }, [recursos, nivel]);
+    }, [recursos, nivel, resourceResolutionPromise]);
 
     // Filter resolved resources
     const filteredResources = useMemo(() => {
@@ -1631,10 +1681,8 @@ export default ResourcesPresenter;
 ```tsx
 import React, { useState } from 'react';
 import { SessionData, FichaContent } from '../types';
-import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
-import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check, Play, Layout } from 'lucide-react';
+import { ArrowLeft, Printer, BookOpen, Clock, Home, RefreshCw, X, Sparkles, Edit3, Check, Play } from 'lucide-react';
 import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 
 interface SessionResultProps {
@@ -1718,14 +1766,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack
     const [isEditing, setIsEditing] = useState(false);
     const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
     const [regenerating, setRegenerating] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
-
-    const handleCopyLatex = () => {
-        const latex = ExportManager.generateLatex(data);
-        copyToClipboard(latex);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+    const [showExportMenu, setShowExportMenu] = useState(false);
 
     const handlePrint = (section: 'session' | 'ficha_aula' | 'ficha_casa') => {
         setPrintSection(section);
@@ -1808,24 +1849,41 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack
                         </button>
                     </Tooltip>
 
-                    <Tooltip text={copied ? "¡Copiado!" : "Copiar como LaTeX"}>
+                    <div className="relative">
                         <button
-                            onClick={handleCopyLatex}
-                            className={`p-2.5 rounded-xl transition-all duration-200 ${copied ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            onClick={() => setShowExportMenu(!showExportMenu)}
+                            className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all"
                         >
-                            <FileJson className="w-5 h-5" />
-                        </button>
-                    </Tooltip>
-
-                    <div className="relative group">
-                        <button className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all">
                             <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar PDF</span>
                         </button>
-                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 hidden group-hover:block z-30">
-                            <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📄 PDF Sesión</button>
-                            <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📝 PDF Ficha Aula</button>
-                            <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">🏠 PDF Ficha Casa</button>
-                        </div>
+                        {showExportMenu && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-20"
+                                    onClick={() => setShowExportMenu(false)}
+                                />
+                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 z-30">
+                                    <button
+                                        onClick={() => { handlePrint('session'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        📄 PDF Sesión
+                                    </button>
+                                    <button
+                                        onClick={() => { handlePrint('ficha_aula'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        📝 PDF Ficha Aula
+                                    </button>
+                                    <button
+                                        onClick={() => { handlePrint('ficha_casa'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        🏠 PDF Ficha Casa
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -2256,8 +2314,10 @@ import { ai } from "../services/geminiService";
 import { SESSION_SCHEMA } from "../schemas/sessionSchema";
 import { PromptComposer } from "./PromptComposer";
 import { RetryPolicy } from "./RetryPolicy";
-import { SessionData, SessionRequest } from "../types";
+import { SessionData, SessionRequest, Resource } from "../types";
 import { Type } from "@google/genai";
+import { RESOLVED_RESOURCES_RESPONSE_SCHEMA } from "../schemas/resolvedResourceSchema";
+import recursosResolver from "../prompts/prompt_recursos_resolver.json";
 
 export class SessionGenerator {
   private static retryPolicy = new RetryPolicy();
@@ -2339,6 +2399,37 @@ export class SessionGenerator {
       if (!jsonText) throw new Error("Empty regeneration response");
       const parsed = JSON.parse(jsonText);
       return parsed[sectionKey];
+    });
+  }
+
+  /**
+   * Second LLM call: Resolve resources with direct URLs
+   * Takes the generated recursos array and asks LLM to provide direct URLs
+   */
+  static async resolveResourcesWithLLM(recursos: Resource[], sessionTitle: string, nivel: string): Promise<any> {
+    if (!recursos || recursos.length === 0) {
+      return { resolvedResources: [] };
+    }
+
+    // Build context for LLM
+    const contextPrompt = `${recursosResolver.role}\n${recursosResolver.task}\n\n`;
+    const instructions = recursosResolver.instructions.join("\n");
+
+    const prompt = `${contextPrompt}\n${instructions}\n\nSESSION TITLE: ${sessionTitle}\nEDUCATIONAL LEVEL: ${nivel}\n\nRESOURCES TO RESOLVE:\n${JSON.stringify(recursos, null, 2)}\n\nFor each resource, provide a direct URL to the actual content (image or video). DO NOT provide search URLs. Use trusted educational sources like:\n- Wikimedia Commons for images\n- YouTube (embed format: https://www.youtube.com/embed/VIDEO_ID) for videos\n- NASA, National Geographic, educational institutions\n\nIf the resource is creative/fictional, mark mode='generated' so it can be created with AI later.\n\nProvide the response in the specified schema format with resolvedResources array.`;
+
+    return this.retryPolicy.execute(async () => {
+      const response = await ai.models.generateContent({
+        model: this.modelId,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: RESOLVED_RESOURCES_RESPONSE_SCHEMA
+        }
+      });
+
+      const jsonText = response.text;
+      if (!jsonText) throw new Error("Empty resource resolution response");
+      return JSON.parse(jsonText);
     });
   }
 }
@@ -2619,14 +2710,17 @@ TIPOS SOPORTADOS:
 - arbol-ideas: Usa 'flowchart TB' jerárquico
 - diagrama-venn: Describe en textFallback (Mermaid no soporta Venn directamente)
 
-REGLAS MERMAID:
+REGLAS MERMAID ESTRICTAS:
 1. Usa sintaxis correcta de Mermaid 10
-2. Envuelve etiquetas con espacios o caracteres especiales entre comillas: A["Texto con espacios"]
-3. Usa IDs cortos sin espacios: A, B, C, nodo1, concepto2
-4. Para inicial: máximo 4-5 nodos simples
-5. Para primaria: 5-8 nodos con relaciones claras
-6. Para secundaria: hasta 10-12 nodos con mayor complejidad
-7. Siempre incluye textFallback como respaldo
+2. SIEMPRE envuelve etiquetas con espacios o caracteres especiales entre comillas: A["Texto con espacios"]
+3. NUNCA uses paréntesis () ni corchetes [] dentro de etiquetas sin comillas
+4. Usa IDs cortos sin espacios: A, B, C, nodo1, concepto2
+5. Para inicial: máximo 4-5 nodos simples, textos cortos
+6. Para primaria: 5-8 nodos con relaciones claras
+7. Para secundaria: hasta 10-12 nodos con mayor complejidad
+8. Siempre incluye textFallback como respaldo
+9. EVITA caracteres especiales: (, ), [, ], {, }, <, >, &, |, #
+10. Si necesitas paréntesis usa: A["Texto entre parentesis"]
 
 EJEMPLOS VÁLIDOS:
 
@@ -2723,7 +2817,8 @@ El código debe ser renderizable directamente por Mermaid.js versión 10.`
     "En 'propositoDidactico' incluye solo un propósito.",
     "El propósito debe estar formulado como producto claro del estudiante e insinuar el organizador visual que se usará.",
     "En materiales incluye una imagen clave del tema y un organizador visual.",
-    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas."
+    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas.",
+    "Genera SIEMPRE un ítem en el arreglo 'organizadores' con código Mermaid válido siguiendo las instrucciones generales."
   ]
 }
 ```
@@ -2732,6 +2827,32 @@ El código debe ser renderizable directamente por Mermaid.js versión 10.`
 ```json
 {
     "instruction": "Además de describir materiales por momento, propone recursos virtuales concretos para proyectar o usar en clase: imágenes, videos cortos, lecturas breves y un organizador visual. No incluyas URLs. Para temas reales y específicos, menciona la institución o colección recomendada como fuente sugerida. Para temas creativos o ficticios en inicial/primaria, puedes describir una imagen o lámina generada sugerida."
+}
+```
+
+## File: `prompts\prompt_recursos_resolver.json`
+```json
+{
+    "role": "Eres un curador experto en recursos educativos digitales y multimedia. Tu conocimiento incluye URLs directas de imágenes y videos de fuentes educativas confiables.",
+    "task": "Para cada recurso listado, PROPORCIONA una URL DIRECTA VÁLIDA a una imagen o video educativo real. NO uses URLs de búsqueda de Google ni search.yahoo.com. SOLO URLs directas a archivos de imagen (.jpg, .png) o videos de YouTube.",
+    "instructions": [
+        "Para IMÁGENES sobre fotosíntesis, plantas, naturaleza: usa Wikimedia Commons URLs directas como https://upload.wikimedia.org/wikipedia/commons/...",
+        "Para VIDEOS: usa formato embed de YouTube https://www.youtube.com/embed/VIDEO_ID donde VIDEO_ID es el ID real de un video educativo conocido",
+        "Ejemplos de URLs VÁLIDAS:",
+        "  - Imagen: https://upload.wikimedia.org/wikipedia/commons/5/5f/Photosynthesis_en.svg",
+        "  - Video: https://www.youtube.com/embed/sQK3Yr4Sc_k",
+        "Ejemplos de URLs INVÁLIDAS (NO USES):",
+        "  - https://www.google.com/search?q=...",
+        "  - https://images.google.com/...",
+        "Si no conoces una URL exacta para un recurso creativo o ficticio, marca mode='generated'",
+        "IMPORTANTE: Los VIDEO_ID de YouTube deben ser de videos educativos reales sobre el tema"
+    ],
+    "examples": {
+        "fotosintesis_imagen": "https://upload.wikimedia.org/wikipedia/commons/5/5f/Photosynthesis_en.svg",
+        "fotosintesis_video": "https://www.youtube.com/embed/sQK3Yr4Sc_k",
+        "planta_imagen": "https://upload.wikimedia.org/wikipedia/commons/4/4c/Photosynthesis.jpg"
+    },
+    "output_format": "Devuelve un objeto {resolvedResources: [{id, resolvedUrl, mode, sourceName}]} para CADA recurso"
 }
 ```
 
@@ -2748,6 +2869,53 @@ El código debe ser renderizable directamente por Mermaid.js versión 10.`
     "Evita proponer imágenes generadas para contenidos históricos, científicos o artísticos específicos."
   ]
 }
+```
+
+## File: `schemas\resolvedResourceSchema.ts`
+```ts
+import { Type, Schema } from "@google/genai";
+
+// Schema for the resolved resource response
+export const RESOLVED_RESOURCE_SCHEMA: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        id: {
+            type: Type.STRING,
+            description: "The ID of the resource from the original recursos array"
+        },
+        resolvedUrl: {
+            type: Type.STRING,
+            description: "DIRECT URL to the image or video. For images: must be a direct .jpg/.png URL. For videos: use YouTube embed format https://www.youtube.com/embed/VIDEO_ID. NEVER use search URLs."
+        },
+        thumbnailUrl: {
+            type: Type.STRING,
+            description: "Direct URL to a thumbnail image (optional, for videos)"
+        },
+        mode: {
+            type: Type.STRING,
+            enum: ["direct", "generated"],
+            description: "'direct' for URLs found from trusted sources, 'generated' if content should be created with AI"
+        },
+        sourceName: {
+            type: Type.STRING,
+            description: "Name of the source (e.g., 'NASA Images', 'National Geographic', 'Wikimedia Commons')"
+        }
+    },
+    required: ["id", "resolvedUrl", "mode"]
+};
+
+export const RESOLVED_RESOURCES_RESPONSE_SCHEMA: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        resolvedResources: {
+            type: Type.ARRAY,
+            items: RESOLVED_RESOURCE_SCHEMA,
+            description: "Array of resolved resources with direct URLs"
+        }
+    },
+    required: ["resolvedResources"]
+};
+
 ```
 
 ## File: `schemas\sessionSchema.ts`
@@ -2954,7 +3122,8 @@ export class ResourceResolver {
         other: 'https://www.google.com/search?q='
     };
 
-    private static readonly IMAGEN_MODEL = 'imagen-3.0-generate-002';
+    // Use a widely available model version or the one specified by Google GenAI docs for v1beta
+    private static readonly IMAGEN_MODEL = 'imagen-3.0-generate-001';
 
     /**
      * Resolve all resources in a session in parallel
@@ -2995,9 +3164,21 @@ export class ResourceResolver {
     }
 
     /**
-     * Resolve an external resource - generates search URLs
+     * Resolve an external resource - uses direct URLs from LLM or falls back to search
      */
     private static resolveExternalResource(resource: Resource): ResolvedResource {
+        // PRIORITY: Use direct URL from second LLM call if available
+        if (resource.source.resolvedUrl) {
+            return {
+                ...resource,
+                status: 'resolved',
+                url: resource.source.resolvedUrl,
+                thumbnail: resource.source.thumbnailUrl || resource.source.resolvedUrl,
+                attribution: resource.source.sourceName || resource.source.providerHint || 'Recurso educativo'
+            };
+        }
+
+        // FALLBACK: Generate search URL only if no direct URL was provided
         const searchBase = this.SEARCH_PROVIDERS[resource.kind] || this.SEARCH_PROVIDERS.other;
 
         // Build search query from hints
@@ -3021,16 +3202,27 @@ export class ResourceResolver {
     }
 
     /**
-     * Resolve a generated resource - uses Gemini Imagen API
+     * Resolve a generated resource - uses resolved URL from LLM or fallback
      */
     private static async resolveGeneratedResource(resource: Resource, nivel: string): Promise<ResolvedResource> {
-        // Only generate images for image-type resources
+        // PRIORITY: If we have a resolved URL from second LLM call, use it directly
+        if (resource.source.resolvedUrl) {
+            return {
+                ...resource,
+                status: 'resolved',
+                url: resource.source.resolvedUrl,
+                thumbnail: resource.source.thumbnailUrl || resource.source.resolvedUrl,
+                attribution: resource.source.sourceName || 'Recurso educativo'
+            };
+        }
+
+        // Only attempt image generation for image-type resources
         if (resource.kind !== 'image' && resource.kind !== 'organizer') {
             return {
                 ...resource,
                 status: 'resolved',
                 thumbnail: this.getPlaceholderThumbnail(resource.kind),
-                attribution: 'Generado por IA'
+                attribution: 'Recurso generado'
             };
         }
 
@@ -3078,12 +3270,25 @@ export class ResourceResolver {
         } catch (error) {
             console.error('Image generation failed:', error);
 
-            // Return with error status but provide a placeholder
+            // FALLBACK: If generation fails (e.g. 404 model not found), 
+            // convert to an "External" resource so user can search for it instead.
+            console.log('Falling back to external search for resource:', resource.title);
+
+            const searchBase = this.SEARCH_PROVIDERS.image;
+            const query = resource.source.generationHint || resource.title;
+            const searchUrl = searchBase + encodeURIComponent(query);
+
             return {
                 ...resource,
-                status: 'error',
-                thumbnail: this.getPlaceholderThumbnail(resource.kind),
-                attribution: 'Generación no disponible'
+                status: 'resolved', // Mark as resolved but as search
+                url: searchUrl,
+                thumbnail: this.getPlaceholderThumbnail(resource.kind), // Placeholder
+                attribution: 'Búsqueda sugerida (Imagen IA no disponible)',
+                source: {
+                    ...resource.source,
+                    mode: 'external',
+                    providerHint: 'Google Images'
+                }
             };
         }
     }
@@ -3201,6 +3406,10 @@ export interface ResourceSource {
   providerHint?: string;  // Institution/collection suggested for external
   queryHint?: string;     // Search query suggested by LLM
   generationHint?: string; // Generation prompt for AI-generated resources
+  // NEW: Fields populated by second LLM call
+  resolvedUrl?: string;    // Direct URL to the actual resource
+  thumbnailUrl?: string;   // Direct URL to thumbnail (for videos)
+  sourceName?: string;     // Name of the source (e.g., "Wikimedia Commons", "NASA")
 }
 
 export interface Resource {

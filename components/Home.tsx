@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NIVELES, GRADOS_INICIAL, GRADOS_PRIMARIA, GRADOS_SECUNDARIA, AREAS } from '../constants';
-import { SessionRequest, SessionRecord, SessionData } from '../types';
 import { SessionGenerator } from '../core/SessionGenerator';
+import { ResourceResolver } from '../services/ResourceResolver';
+import { SessionData, ResolvedResource, SessionRequest, SessionRecord } from '../types';
 import { Mic, MicOff, Loader2, Sparkles, History, ArrowRight, Camera, X, Image as ImageIcon, Upload } from 'lucide-react';
 
 interface HomeProps {
-    onSessionGenerated: (data: SessionData, nivel?: string) => void;
+    onSessionGenerated: (data: SessionData, nivel?: string, resourcePromise?: Promise<ResolvedResource[]>) => void;
 }
 
 const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
@@ -185,6 +186,42 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
 
             const data = await SessionGenerator.generate(request);
 
+            // SECOND LLM CALL: Resolve resources with direct URLs
+            if (data.recursos && data.recursos.length > 0) {
+                setLoadingText("Buscando recursos educativos...");
+                try {
+                    const resolved = await SessionGenerator.resolveResourcesWithLLM(
+                        data.recursos,
+                        data.sessionTitle,
+                        nivel
+                    );
+
+                    // Merge resolved URLs back into recursos
+                    if (resolved.resolvedResources) {
+                        data.recursos = data.recursos.map(resource => {
+                            const resolvedItem = resolved.resolvedResources.find(
+                                (r: any) => r.id === resource.id
+                            );
+                            if (resolvedItem) {
+                                return {
+                                    ...resource,
+                                    source: {
+                                        ...resource.source,
+                                        resolvedUrl: resolvedItem.resolvedUrl,
+                                        thumbnailUrl: resolvedItem.thumbnailUrl,
+                                        sourceName: resolvedItem.sourceName
+                                    }
+                                };
+                            }
+                            return resource;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to resolve resources with LLM:', error);
+                    // Continue without resolved URLs - ResourceResolver will handle fallbacks
+                }
+            }
+
             const newRecord: SessionRecord = {
                 id: Date.now().toString(),
                 timestamp: Date.now(),
@@ -195,8 +232,18 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
             setHistory(newHistory);
             localStorage.setItem('aula_history', JSON.stringify(newHistory));
 
+            // Only call ResourceResolver.resolveAll for resources that DON'T have resolvedUrl
+            // This avoids redundant processing of already-resolved resources
+            const unresolvedResources = (data.recursos || []).filter(r => !r.source.resolvedUrl);
+            let resourcePromise: Promise<ResolvedResource[]> | undefined = undefined;
+
+            if (unresolvedResources.length > 0) {
+                // Only resolve what wasn't resolved by the LLM
+                resourcePromise = ResourceResolver.resolveAll(unresolvedResources, nivel);
+            }
+
             clearInterval(interval);
-            onSessionGenerated(data, nivel);
+            onSessionGenerated(data, nivel, resourcePromise);
         } catch (error) {
             clearInterval(interval);
             alert("Hubo un error. Por favor intenta de nuevo.");

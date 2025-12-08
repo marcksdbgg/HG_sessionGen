@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { SessionData, FichaContent } from '../types';
-import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
-import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check, Play, Layout } from 'lucide-react';
+import { ArrowLeft, Printer, BookOpen, Clock, Home, RefreshCw, X, Sparkles, Edit3, Check, Play } from 'lucide-react';
 import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 
 interface SessionResultProps {
@@ -87,14 +85,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack
     const [isEditing, setIsEditing] = useState(false);
     const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
     const [regenerating, setRegenerating] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
-
-    const handleCopyLatex = () => {
-        const latex = ExportManager.generateLatex(data);
-        copyToClipboard(latex);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+    const [showExportMenu, setShowExportMenu] = useState(false);
 
     const handlePrint = (section: 'session' | 'ficha_aula' | 'ficha_casa') => {
         setPrintSection(section);
@@ -177,24 +168,41 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, onBack
                         </button>
                     </Tooltip>
 
-                    <Tooltip text={copied ? "¡Copiado!" : "Copiar como LaTeX"}>
+                    <div className="relative">
                         <button
-                            onClick={handleCopyLatex}
-                            className={`p-2.5 rounded-xl transition-all duration-200 ${copied ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            onClick={() => setShowExportMenu(!showExportMenu)}
+                            className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all"
                         >
-                            <FileJson className="w-5 h-5" />
-                        </button>
-                    </Tooltip>
-
-                    <div className="relative group">
-                        <button className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all">
                             <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar PDF</span>
                         </button>
-                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 hidden group-hover:block z-30">
-                            <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📄 PDF Sesión</button>
-                            <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📝 PDF Ficha Aula</button>
-                            <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">🏠 PDF Ficha Casa</button>
-                        </div>
+                        {showExportMenu && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-20"
+                                    onClick={() => setShowExportMenu(false)}
+                                />
+                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 z-30">
+                                    <button
+                                        onClick={() => { handlePrint('session'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        📄 PDF Sesión
+                                    </button>
+                                    <button
+                                        onClick={() => { handlePrint('ficha_aula'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        📝 PDF Ficha Aula
+                                    </button>
+                                    <button
+                                        onClick={() => { handlePrint('ficha_casa'); setShowExportMenu(false); }}
+                                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        🏠 PDF Ficha Casa
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

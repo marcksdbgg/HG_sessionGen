@@ -48,7 +48,12 @@ export const Prompts = {
     instruction: "Genera dos fichas de aplicación distintas: una para desarrollar en el aula (trabajo grupal o individual guiado) y otra para casa (refuerzo o extensión). Deben ser claras y listas para imprimir. Puedes usar encabezados internos marcados en texto para organizar por secciones temáticas cuando sea pertinente."
   },
   recursos: {
-    instruction: "Además de describir materiales por momento, propone recursos virtuales concretos para proyectar o usar en clase: imágenes, videos cortos, lecturas breves. No incluyas URLs. Para temas reales y específicos, menciona la institución o colección recomendada como fuente sugerida. Para temas creativos o ficticios en inicial/primaria, puedes describir una imagen o lámina generada sugerida."
+    instruction: `Propone recursos virtuales concretos para proyectar o usar en clase:
+- IMÁGENES: Para temas reales, sugiere providerHint con fuentes reales (Wikimedia, NASA, museos). Para temas creativos/ficticios, usa mode:'generated' con generationHint descriptivo EN INGLÉS (ej: "healthy and wilted plant comparison, educational illustration").
+- VIDEOS: OBLIGATORIAMENTE en ESPAÑOL de canales educativos hispanohablantes (Happy Learning Español, Academia Play, Smile and Learn Español, Aula365, La Eduteca). Siempre incluir "español" o "en español" en queryHint.
+- LECTURAS: Textos breves adaptados al nivel.
+
+NO incluyas URLs directas. Solo providerHint y queryHint para búsquedas.`
   },
   organizadores: {
     instruction: `IMPORTANTE: Genera al menos UN organizador visual en el campo 'organizadores' con código Mermaid válido.
@@ -65,14 +70,17 @@ TIPOS SOPORTADOS:
 - arbol-ideas: Usa 'flowchart TB' jerárquico
 - diagrama-venn: Describe en textFallback (Mermaid no soporta Venn directamente)
 
-REGLAS MERMAID:
+REGLAS MERMAID ESTRICTAS:
 1. Usa sintaxis correcta de Mermaid 10
-2. Envuelve etiquetas con espacios o caracteres especiales entre comillas: A["Texto con espacios"]
-3. Usa IDs cortos sin espacios: A, B, C, nodo1, concepto2
-4. Para inicial: máximo 4-5 nodos simples
-5. Para primaria: 5-8 nodos con relaciones claras
-6. Para secundaria: hasta 10-12 nodos con mayor complejidad
-7. Siempre incluye textFallback como respaldo
+2. SIEMPRE envuelve etiquetas con espacios o caracteres especiales entre comillas: A["Texto con espacios"]
+3. NUNCA uses paréntesis () ni corchetes [] dentro de etiquetas sin comillas
+4. Usa IDs cortos sin espacios: A, B, C, nodo1, concepto2
+5. Para inicial: máximo 4-5 nodos simples, textos cortos
+6. Para primaria: 5-8 nodos con relaciones claras
+7. Para secundaria: hasta 10-12 nodos con mayor complejidad
+8. Siempre incluye textFallback como respaldo
+9. EVITA caracteres especiales: (, ), [, ], {, }, <, >, &, |, #
+10. Si necesitas paréntesis usa: A["Texto entre parentesis"]
 
 EJEMPLOS VÁLIDOS:
 

@@ -4,35 +4,52 @@ import { Resource, ResolvedResource, ResourceKind } from '../types';
 /**
  * ResourceResolver - Resolves resource hints into actual content
  * 
- * For 'external' resources: Generates search URLs for Google/YouTube
- * For 'generated' resources: Uses Gemini Imagen API to create images
+ * Uses Gemini Imagen API to generate images with proper English prompts
+ * Rate limited to avoid API throttling
  */
 export class ResourceResolver {
-    private static readonly SEARCH_PROVIDERS = {
-        image: 'https://www.google.com/search?tbm=isch&q=',
-        video: 'https://www.youtube.com/results?search_query=',
-        reading: 'https://www.google.com/search?q=',
-        organizer: 'https://www.google.com/search?tbm=isch&q=organizador+visual+',
-        worksheet: 'https://www.google.com/search?q=ficha+de+trabajo+',
-        other: 'https://www.google.com/search?q='
-    };
-
-    // Use a widely available model version or the one specified by Google GenAI docs for v1beta
+    // Imagen model - use the latest available
     private static readonly IMAGEN_MODEL = 'imagen-3.0-generate-001';
 
+    // Rate limiting: process max N images concurrently
+    private static readonly MAX_CONCURRENT_GENERATIONS = 2;
+
     /**
-     * Resolve all resources in a session in parallel
+     * Resolve all resources in a session with rate limiting
      */
     static async resolveAll(resources: Resource[], nivel: string): Promise<ResolvedResource[]> {
         if (!resources || resources.length === 0) {
             return [];
         }
 
-        const resolvePromises = resources.map(resource =>
-            this.resolveResource(resource, nivel)
+        // Separate by type for efficient processing
+        const imageResources = resources.filter(r =>
+            r.kind === 'image' && r.source.mode === 'generated'
+        );
+        const otherResources = resources.filter(r =>
+            !(r.kind === 'image' && r.source.mode === 'generated')
         );
 
-        return Promise.all(resolvePromises);
+        // Process non-image resources immediately (no rate limit needed)
+        const otherPromises = otherResources.map(r => this.resolveResource(r, nivel));
+
+        // Process image resources with rate limiting
+        const imageResults: ResolvedResource[] = [];
+        for (let i = 0; i < imageResources.length; i += this.MAX_CONCURRENT_GENERATIONS) {
+            const batch = imageResources.slice(i, i + this.MAX_CONCURRENT_GENERATIONS);
+            const batchResults = await Promise.all(
+                batch.map(r => this.resolveResource(r, nivel))
+            );
+            imageResults.push(...batchResults);
+        }
+
+        const otherResults = await Promise.all(otherPromises);
+
+        // Merge preserving original order
+        return resources.map(resource => {
+            const found = [...otherResults, ...imageResults].find(r => r.id === resource.id);
+            return found || { ...resource, status: 'pending' as const };
+        });
     }
 
     /**
@@ -45,13 +62,31 @@ export class ResourceResolver {
         };
 
         try {
-            if (resource.source.mode === 'external') {
-                return this.resolveExternalResource(resource);
-            } else if (resource.source.mode === 'generated') {
-                return await this.resolveGeneratedResource(resource, nivel);
+            // Skip if already resolved by LLM
+            if (resource.source.resolvedUrl) {
+                return {
+                    ...resource,
+                    status: 'resolved',
+                    url: resource.source.resolvedUrl,
+                    thumbnail: resource.source.thumbnailUrl || resource.source.resolvedUrl,
+                    attribution: resource.source.sourceName || resource.source.providerHint || 'Recurso educativo'
+                };
             }
 
-            return { ...baseResolved, status: 'resolved' };
+            // Route by resource type
+            if (resource.kind === 'video') {
+                return this.resolveVideoResource(resource);
+            } else if (resource.source.mode === 'generated' && resource.kind === 'image') {
+                return await this.generateImageResource(resource, nivel);
+            } else {
+                // For reading, worksheet, other - use placeholder with description
+                return {
+                    ...resource,
+                    status: 'resolved',
+                    thumbnail: this.getPlaceholderThumbnail(resource.kind),
+                    attribution: resource.source.providerHint || 'Recurso sugerido'
+                };
+            }
         } catch (error) {
             console.error(`Failed to resolve resource ${resource.id}:`, error);
             return { ...baseResolved, status: 'error' };
@@ -59,57 +94,38 @@ export class ResourceResolver {
     }
 
     /**
-     * Resolve an external resource - generates search URLs
+     * Resolve video resource - create embed URL for Spanish educational videos
      */
-    private static resolveExternalResource(resource: Resource): ResolvedResource {
-        const searchBase = this.SEARCH_PROVIDERS[resource.kind] || this.SEARCH_PROVIDERS.other;
-
-        // Build search query from hints
-        let query = resource.source.queryHint || resource.title;
-        if (resource.source.providerHint) {
-            query += ` ${resource.source.providerHint}`;
-        }
-
-        const searchUrl = searchBase + encodeURIComponent(query);
-
-        // Generate a placeholder thumbnail based on kind
-        const thumbnail = this.getPlaceholderThumbnail(resource.kind);
+    private static resolveVideoResource(resource: Resource): ResolvedResource {
+        // Build YouTube embed URL if we have a video ID hint
+        const query = resource.source.queryHint || resource.title;
+        const embedUrl = this.buildYouTubeEmbedFromSearch(query);
 
         return {
             ...resource,
             status: 'resolved',
-            url: searchUrl,
-            thumbnail,
-            attribution: resource.source.providerHint || 'Búsqueda web'
+            url: embedUrl,
+            thumbnail: this.getYouTubeThumbnail(query),
+            attribution: resource.source.providerHint || 'YouTube Educativo'
         };
     }
 
     /**
-     * Resolve a generated resource - uses Gemini Imagen API
+     * Generate image using Imagen API with English prompt
      */
-    private static async resolveGeneratedResource(resource: Resource, nivel: string): Promise<ResolvedResource> {
-        // Only generate images for image-type resources
-        if (resource.kind !== 'image' && resource.kind !== 'organizer') {
-            return {
-                ...resource,
-                status: 'resolved',
-                thumbnail: this.getPlaceholderThumbnail(resource.kind),
-                attribution: 'Generado por IA'
-            };
-        }
-
+    private static async generateImageResource(resource: Resource, nivel: string): Promise<ResolvedResource> {
         try {
-            // Build an appropriate prompt
-            const prompt = this.buildImagePrompt(resource, nivel);
+            // Build English prompt (Imagen only supports English)
+            const englishPrompt = this.buildEnglishImagePrompt(resource, nivel);
 
-            // Call Gemini Imagen API
+            console.log('[Imagen] Generating with prompt:', englishPrompt);
+
             const result = await ai.models.generateImages({
                 model: this.IMAGEN_MODEL,
-                prompt: prompt,
+                prompt: englishPrompt,
                 config: {
                     numberOfImages: 1,
-                    aspectRatio: '16:9',
-                    outputMimeType: 'image/png'
+                    aspectRatio: '16:9'
                 }
             });
 
@@ -117,82 +133,113 @@ export class ResourceResolver {
             if (result.generatedImages && result.generatedImages.length > 0) {
                 const imageData = result.generatedImages[0].image;
 
-                // Convert to data URL if we have base64 data
                 if (imageData?.imageBytes) {
-                    const base64 = imageData.imageBytes;
-                    const dataUrl = `data:image/png;base64,${base64}`;
-
+                    const dataUrl = `data:image/png;base64,${imageData.imageBytes}`;
                     return {
                         ...resource,
                         status: 'resolved',
                         url: dataUrl,
                         thumbnail: dataUrl,
-                        attribution: 'Generado con Gemini Imagen'
+                        attribution: 'Generado con IA'
                     };
                 }
             }
 
-            // Fallback if generation failed
+            throw new Error('No image data in response');
+        } catch (error: any) {
+            console.error('[Imagen] Generation failed:', error.message || error);
+
+            // Return with placeholder but mark as error so UI shows fallback
             return {
                 ...resource,
                 status: 'error',
                 thumbnail: this.getPlaceholderThumbnail(resource.kind),
-                attribution: 'Error al generar imagen'
-            };
-        } catch (error) {
-            console.error('Image generation failed:', error);
-
-            // FALLBACK: If generation fails (e.g. 404 model not found), 
-            // convert to an "External" resource so user can search for it instead.
-            console.log('Falling back to external search for resource:', resource.title);
-
-            const searchBase = this.SEARCH_PROVIDERS.image;
-            const query = resource.source.generationHint || resource.title;
-            const searchUrl = searchBase + encodeURIComponent(query);
-
-            return {
-                ...resource,
-                status: 'resolved', // Mark as resolved but as search
-                url: searchUrl,
-                thumbnail: this.getPlaceholderThumbnail(resource.kind), // Placeholder
-                attribution: 'Búsqueda sugerida (Imagen IA no disponible)',
-                source: {
-                    ...resource.source,
-                    mode: 'external',
-                    providerHint: 'Google Images'
-                }
+                attribution: 'Imagen no disponible'
             };
         }
     }
 
     /**
-     * Build an appropriate image generation prompt based on resource and level
+     * Build English prompt for Imagen API
+     * Translates Spanish concepts to English with appropriate style modifiers
      */
-    private static buildImagePrompt(resource: Resource, nivel: string): string {
+    private static buildEnglishImagePrompt(resource: Resource, nivel: string): string {
+        // Base prompt from generation hint or title
         let basePrompt = resource.source.generationHint || resource.title;
+
+        // Common Spanish -> English educational terms
+        const translations: Record<string, string> = {
+            'fotosíntesis': 'photosynthesis',
+            'planta': 'plant',
+            'plantas': 'plants',
+            'célula': 'cell',
+            'decena': 'group of ten',
+            'suma': 'addition',
+            'resta': 'subtraction',
+            'multiplicación': 'multiplication',
+            'división': 'division',
+            'animales': 'animals',
+            'ecosistema': 'ecosystem',
+            'ciclo': 'cycle',
+            'agua': 'water',
+            'sol': 'sun',
+            'luz': 'light',
+            'energía': 'energy',
+            'clorofila': 'chlorophyll',
+            'hoja': 'leaf',
+            'hojas': 'leaves',
+            'raíz': 'root',
+            'tallo': 'stem',
+            'flor': 'flower',
+            'fruto': 'fruit',
+            'semilla': 'seed',
+            'oxígeno': 'oxygen',
+            'dióxido de carbono': 'carbon dioxide',
+            'sana': 'healthy',
+            'marchita': 'wilted',
+            'comparación': 'comparison'
+        };
+
+        // Apply translations
+        let englishPrompt = basePrompt.toLowerCase();
+        for (const [spanish, english] of Object.entries(translations)) {
+            englishPrompt = englishPrompt.replace(new RegExp(spanish, 'gi'), english);
+        }
 
         // Add style modifiers based on level
         if (nivel === 'Inicial') {
-            basePrompt += ', cartoon style, colorful, child-friendly, simple shapes, educational illustration for 4-6 year olds';
+            englishPrompt += ', cartoon style, very colorful, cute, child-friendly, simple shapes, educational illustration for preschool kids, no text';
         } else if (nivel === 'Primaria') {
-            basePrompt += ', educational illustration, colorful, clear, suitable for elementary school children, friendly style';
+            englishPrompt += ', colorful educational illustration, clear, friendly style, suitable for elementary school, no text, clean design';
         } else {
-            basePrompt += ', educational diagram, clear, modern, suitable for high school students';
+            englishPrompt += ', educational diagram, modern, clean, infographic style, suitable for high school students';
         }
 
-        // Add type-specific modifiers
-        if (resource.kind === 'organizer') {
-            basePrompt += ', visual organizer, diagram, infographic style, labeled sections';
-        }
+        // Ensure it's educational and safe
+        englishPrompt += ', educational, school-appropriate, high quality';
 
-        return basePrompt;
+        return englishPrompt;
+    }
+
+    /**
+     * Build a YouTube embed placeholder (actual embed will be in UI)
+     */
+    private static buildYouTubeEmbedFromSearch(query: string): string {
+        // Return search results URL - UI will handle embedding
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(query + ' español educativo')}`;
+    }
+
+    /**
+     * Get a themed thumbnail for YouTube 
+     */
+    private static getYouTubeThumbnail(_query: string): string {
+        return this.createSvgDataUrl('🎬', '#FF0000');
     }
 
     /**
      * Get a placeholder thumbnail SVG based on resource kind
      */
     private static getPlaceholderThumbnail(kind: ResourceKind): string {
-        // Return a simple SVG data URL as placeholder
         const placeholders: Record<ResourceKind, string> = {
             image: this.createSvgDataUrl('🖼️', '#3B82F6'),
             video: this.createSvgDataUrl('🎬', '#EF4444'),
@@ -201,7 +248,6 @@ export class ResourceResolver {
             worksheet: this.createSvgDataUrl('📝', '#8B5CF6'),
             other: this.createSvgDataUrl('📎', '#6B7280')
         };
-
         return placeholders[kind] || placeholders.other;
     }
 
@@ -211,25 +257,10 @@ export class ResourceResolver {
     private static createSvgDataUrl(emoji: string, bgColor: string): string {
         const svg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="400" height="225" viewBox="0 0 400 225">
-                <rect width="100%" height="100%" fill="${bgColor}" opacity="0.1"/>
-                <text x="50%" y="50%" font-size="48" text-anchor="middle" dominant-baseline="middle">${emoji}</text>
+                <rect width="100%" height="100%" fill="${bgColor}" opacity="0.15"/>
+                <text x="50%" y="50%" font-size="64" text-anchor="middle" dominant-baseline="middle">${emoji}</text>
             </svg>
         `.trim();
-
         return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-    }
-
-    /**
-     * Generate a YouTube embed URL from a search query
-     */
-    static getYouTubeSearchUrl(query: string): string {
-        return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-    }
-
-    /**
-     * Generate a Google Image search URL
-     */
-    static getGoogleImageSearchUrl(query: string): string {
-        return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`;
     }
 }

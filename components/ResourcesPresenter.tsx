@@ -12,6 +12,7 @@ import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 interface ResourcesPresenterProps {
     data: SessionData;
     nivel?: string;
+    resourceResolutionPromise?: Promise<ResolvedResource[]>;
     onBack: () => void;
 }
 
@@ -53,120 +54,92 @@ const KIND_LABELS: Record<ResourceKind, string> = {
     other: 'Otro'
 };
 
-// Resource Card Component with resolved content
+// Resource Card Component - Simplified UI, entire card is clickable
 const ResourceCard: React.FC<{
     resource: ResolvedResource;
-    onFullscreen?: () => void;
-}> = ({ resource, onFullscreen }) => {
+    onClick: () => void;
+}> = ({ resource, onClick }) => {
     const colors = MOMENT_COLORS[resource.moment];
-    const isExternal = resource.source.mode === 'external';
-    const isResolved = resource.status === 'resolved';
     const hasError = resource.status === 'error';
     const isPending = resource.status === 'pending';
-
-    const handleOpenUrl = () => {
-        if (resource.url) {
-            window.open(resource.url, '_blank');
-        }
-    };
+    const isVideo = resource.kind === 'video';
+    const isGenerated = resource.source.mode === 'generated';
 
     return (
-        <div className={`bg-white rounded-2xl border-2 ${colors.border} overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300`}>
-            {/* Resource Preview - Shows actual thumbnail */}
+        <div
+            onClick={onClick}
+            className={`bg-white rounded-2xl border-2 ${colors.border} overflow-hidden shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-pointer group`}
+        >
+            {/* Resource Preview - Shows actual content inline */}
             <div className={`h-44 relative overflow-hidden ${!resource.thumbnail ? colors.bg : ''}`}>
-                {resource.thumbnail ? (
+                {isVideo && resource.url ? (
+                    // Embed YouTube thumbnail with play overlay
+                    <div className="w-full h-full relative bg-slate-900 flex items-center justify-center">
+                        <div className="text-6xl text-white/80">▶️</div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                    </div>
+                ) : resource.thumbnail ? (
                     <img
                         src={resource.thumbnail}
                         alt={resource.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         onError={(e) => {
-                            // Fallback to placeholder on error
                             (e.target as HTMLImageElement).style.display = 'none';
                         }}
                     />
                 ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                        <div className="text-5xl opacity-20">
+                        <div className="text-5xl opacity-30">
                             {KIND_ICONS[resource.kind]}
                         </div>
                     </div>
                 )}
 
-                {/* Status indicators */}
+                {/* Loading overlay */}
                 {isPending && (
                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                         <Loader2 className="w-8 h-8 text-white animate-spin" />
                     </div>
                 )}
+
+                {/* Error indicator */}
                 {hasError && (
-                    <div className="absolute bottom-2 left-2 px-2 py-1 bg-red-500 text-white text-xs rounded-full flex items-center gap-1">
+                    <div className="absolute bottom-2 left-2 px-2 py-1 bg-amber-500 text-white text-xs rounded-full flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" />
-                        Error
+                        Generando...
                     </div>
                 )}
 
-                {/* Mode badge */}
-                <div className={`absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 backdrop-blur-sm ${isExternal
-                    ? 'bg-blue-500/90 text-white'
-                    : 'bg-purple-500/90 text-white'
-                    }`}>
-                    {isExternal ? <ExternalLink className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-                    {isExternal ? 'Web' : 'IA'}
-                </div>
-
-                {/* Kind badge */}
+                {/* Type badge */}
                 <div className={`absolute top-3 left-3 px-2 py-1 rounded-full text-xs font-medium bg-white/90 ${colors.text} flex items-center gap-1 backdrop-blur-sm`}>
                     {KIND_ICONS[resource.kind]}
                     {KIND_LABELS[resource.kind]}
                 </div>
+
+                {/* Generated/External badge */}
+                <div className={`absolute top-3 right-3 px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 backdrop-blur-sm ${isGenerated ? 'bg-purple-500/90 text-white' : 'bg-blue-500/90 text-white'
+                    }`}>
+                    {isGenerated ? <Sparkles className="w-3 h-3" /> : <ExternalLink className="w-3 h-3" />}
+                    {isGenerated ? 'IA' : 'Web'}
+                </div>
             </div>
 
             {/* Content */}
-            <div className="p-4 space-y-3">
-                <div>
-                    <h3 className="font-bold text-slate-900 text-sm line-clamp-2">{resource.title}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
-                            {MOMENT_LABELS[resource.moment]}
-                        </span>
-                        {resource.attribution && (
-                            <span className="text-xs text-slate-400">{resource.attribution}</span>
-                        )}
-                    </div>
+            <div className="p-4 space-y-2">
+                <h3 className="font-bold text-slate-900 text-sm line-clamp-2 group-hover:text-blue-600 transition-colors">
+                    {resource.title}
+                </h3>
+                <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
+                        {MOMENT_LABELS[resource.moment]}
+                    </span>
+                    {resource.attribution && (
+                        <span className="text-xs text-slate-400 truncate">{resource.attribution}</span>
+                    )}
                 </div>
-
-                {/* Notes */}
                 {resource.notes && (
-                    <p className="text-xs text-slate-600 line-clamp-2">{resource.notes}</p>
+                    <p className="text-xs text-slate-500 line-clamp-2">{resource.notes}</p>
                 )}
-
-                {/* Actions */}
-                <div className="flex gap-2 pt-2">
-                    {isExternal && resource.url && (
-                        <button
-                            onClick={handleOpenUrl}
-                            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gradient-to-r ${colors.gradient} text-white rounded-xl text-xs font-bold transition-all hover:opacity-90 shadow-sm`}
-                        >
-                            <Search className="w-4 h-4" />
-                            Buscar en Web
-                        </button>
-                    )}
-                    {!isExternal && resource.thumbnail && (
-                        <button
-                            onClick={onFullscreen}
-                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl text-xs font-bold transition-all hover:opacity-90 shadow-sm"
-                        >
-                            <Maximize2 className="w-4 h-4" />
-                            Ver Imagen
-                        </button>
-                    )}
-                    <button
-                        onClick={onFullscreen}
-                        className="flex items-center justify-center gap-1 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-medium text-slate-700 transition-colors"
-                    >
-                        <FileText className="w-4 h-4" />
-                    </button>
-                </div>
             </div>
         </div>
     );
@@ -230,7 +203,7 @@ const FichaCard: React.FC<{
     );
 };
 
-const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = 'Primaria', onBack }) => {
+const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = 'Primaria', resourceResolutionPromise, onBack }) => {
     const [activeFilter, setActiveFilter] = useState<ResourceMoment | 'all' | 'fichas'>('all');
     const [kindFilter, setKindFilter] = useState<ResourceKind | 'all'>('all');
     const [fullscreenResource, setFullscreenResource] = useState<ResolvedResource | null>(null);
@@ -245,6 +218,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
     const recursos = data.recursos || [];
 
     // Resolve resources on mount
+    // Resolve resources on mount or use promise
     useEffect(() => {
         if (recursos.length === 0) return;
 
@@ -253,12 +227,46 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
             setResolveError(null);
 
             try {
-                const resolved = await ResourceResolver.resolveAll(recursos, nivel);
-                setResolvedResources(resolved);
+                // Separate resources that already have resolvedUrl from those that don't
+                const alreadyResolved: ResolvedResource[] = [];
+                const needsResolution: Resource[] = [];
+
+                recursos.forEach(resource => {
+                    if (resource.source.resolvedUrl) {
+                        // Convert to ResolvedResource format with status 'resolved'
+                        alreadyResolved.push({
+                            ...resource,
+                            status: 'resolved',
+                            url: resource.source.resolvedUrl,
+                            thumbnail: resource.source.thumbnailUrl || resource.source.resolvedUrl,
+                            attribution: resource.source.sourceName || resource.source.providerHint || 'Recurso educativo'
+                        });
+                    } else {
+                        needsResolution.push(resource);
+                    }
+                });
+
+                // Resolve only the resources that need resolution
+                let newlyResolved: ResolvedResource[] = [];
+                if (needsResolution.length > 0) {
+                    // If we have a pre-calculated promise from Home/App, use it
+                    newlyResolved = resourceResolutionPromise
+                        ? await resourceResolutionPromise
+                        : await ResourceResolver.resolveAll(needsResolution, nivel || 'Primaria');
+                }
+
+                // Merge: keep order by finding each resource in either list
+                const mergedResources = recursos.map(resource => {
+                    const found = alreadyResolved.find(r => r.id === resource.id)
+                        || newlyResolved.find(r => r.id === resource.id);
+                    return found || { ...resource, status: 'pending' as const };
+                });
+
+                setResolvedResources(mergedResources);
             } catch (error) {
                 console.error('Failed to resolve resources:', error);
                 setResolveError('Error al procesar los recursos');
-                // Fallback: mark all as pending
+                // Fallback: convert all to ResolvedResource with pending status
                 setResolvedResources(recursos.map(r => ({ ...r, status: 'pending' as const })));
             } finally {
                 setIsResolving(false);
@@ -266,7 +274,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
         };
 
         resolveResources();
-    }, [recursos, nivel]);
+    }, [recursos, nivel, resourceResolutionPromise]);
 
     // Filter resolved resources
     const filteredResources = useMemo(() => {
@@ -447,7 +455,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
                             <ResourceCard
                                 key={resource.id || idx}
                                 resource={resource}
-                                onFullscreen={() => setFullscreenResource(resource)}
+                                onClick={() => setFullscreenResource(resource)}
                             />
                         ))}
                         {filteredResources.length === 0 && !isResolving && (
@@ -486,75 +494,72 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ data, nivel = '
                         className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
                         onClick={e => e.stopPropagation()}
                     >
-                        {/* Image/Content area */}
-                        {fullscreenResource.thumbnail && (
-                            <div className="relative bg-slate-900">
+                        {/* Content area - Image or Video */}
+                        <div className="relative bg-slate-900 min-h-[300px] flex items-center justify-center">
+                            {fullscreenResource.kind === 'video' ? (
+                                // Show video placeholder with info
+                                <div className="text-center text-white p-8">
+                                    <div className="text-6xl mb-4">🎬</div>
+                                    <p className="text-lg font-medium mb-2">Video Educativo</p>
+                                    <p className="text-sm text-slate-300 mb-4">{fullscreenResource.title}</p>
+                                    {fullscreenResource.url && (
+                                        <a
+                                            href={fullscreenResource.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl font-bold transition-colors"
+                                        >
+                                            <Play className="w-5 h-5" />
+                                            Ver en YouTube
+                                        </a>
+                                    )}
+                                </div>
+                            ) : fullscreenResource.thumbnail ? (
                                 <img
                                     src={fullscreenResource.thumbnail}
                                     alt={fullscreenResource.title}
                                     className="w-full max-h-[60vh] object-contain mx-auto"
                                 />
-                            </div>
-                        )}
-
-                        <div className={`${MOMENT_COLORS[fullscreenResource.moment].bg} p-6`}>
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${MOMENT_COLORS[fullscreenResource.moment].bg} ${MOMENT_COLORS[fullscreenResource.moment].text} border ${MOMENT_COLORS[fullscreenResource.moment].border}`}>
-                                        {MOMENT_LABELS[fullscreenResource.moment]}
-                                    </span>
-                                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-white text-slate-600">
-                                        {KIND_LABELS[fullscreenResource.kind]}
-                                    </span>
+                            ) : (
+                                <div className="text-6xl text-white/30">
+                                    {KIND_ICONS[fullscreenResource.kind]}
                                 </div>
-                                <button
-                                    onClick={() => setFullscreenResource(null)}
-                                    className="p-2 hover:bg-black/10 rounded-full transition-colors text-slate-600"
-                                >
-                                    ✕
-                                </button>
+                            )}
+
+                            {/* Close button */}
+                            <button
+                                onClick={() => setFullscreenResource(null)}
+                                className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white transition-colors"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Info section */}
+                        <div className={`${MOMENT_COLORS[fullscreenResource.moment].bg} p-6`}>
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${MOMENT_COLORS[fullscreenResource.moment].bg} ${MOMENT_COLORS[fullscreenResource.moment].text} border ${MOMENT_COLORS[fullscreenResource.moment].border}`}>
+                                    {MOMENT_LABELS[fullscreenResource.moment]}
+                                </span>
+                                <span className="px-3 py-1 rounded-full text-xs font-medium bg-white text-slate-600">
+                                    {KIND_LABELS[fullscreenResource.kind]}
+                                </span>
+                                {fullscreenResource.attribution && (
+                                    <span className="text-xs text-slate-500">{fullscreenResource.attribution}</span>
+                                )}
                             </div>
                             <h2 className="text-xl font-bold text-slate-900">{fullscreenResource.title}</h2>
-                            {fullscreenResource.attribution && (
-                                <p className="text-sm text-slate-500 mt-1">{fullscreenResource.attribution}</p>
-                            )}
                         </div>
 
-                        <div className="p-6 space-y-4">
-                            {fullscreenResource.notes && (
+                        {/* Notes section */}
+                        {fullscreenResource.notes && (
+                            <div className="p-6">
                                 <div className="bg-amber-50 p-4 rounded-xl">
-                                    <p className="text-sm font-medium text-amber-800">Uso pedagógico</p>
+                                    <p className="text-sm font-medium text-amber-800">💡 Uso pedagógico</p>
                                     <p className="text-amber-700 text-sm mt-1">{fullscreenResource.notes}</p>
                                 </div>
-                            )}
-
-                            <div className="flex gap-3">
-                                {fullscreenResource.url && (
-                                    <a
-                                        href={fullscreenResource.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-bold hover:opacity-90 transition-all"
-                                    >
-                                        {fullscreenResource.source.mode === 'external' ? (
-                                            <>
-                                                <Search className="w-5 h-5" />
-                                                Buscar en Web
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Download className="w-5 h-5" />
-                                                Descargar
-                                            </>
-                                        )}
-                                    </a>
-                                )}
-                                <button className="px-4 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-medium text-slate-700 flex items-center gap-2 transition-colors">
-                                    <Printer className="w-5 h-5" />
-                                    Imprimir
-                                </button>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
             )}
