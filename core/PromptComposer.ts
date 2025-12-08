@@ -41,6 +41,9 @@ export class PromptComposer {
     // Resources instruction
     composed += `\nRECURSOS VIRTUALES:\n${Prompts.recursos.instruction}\n`;
 
+    // Organizers instruction (Mermaid diagrams)
+    composed += `\nORGANIZADORES VISUALES CON CÓDIGO MERMAID:\n${Prompts.organizadores.instruction}\n`;
+
     // Specific Context
     composed += `\n========================================\n`;
     composed += `CONTEXTO ESPECÍFICO DE ESTA SESIÓN:\n`;

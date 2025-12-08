@@ -5,7 +5,7 @@ import { SessionGenerator } from '../core/SessionGenerator';
 import { Mic, MicOff, Loader2, Sparkles, History, ArrowRight, Camera, X, Image as ImageIcon, Upload } from 'lucide-react';
 
 interface HomeProps {
-    onSessionGenerated: (data: SessionData) => void;
+    onSessionGenerated: (data: SessionData, nivel?: string) => void;
 }
 
 const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
@@ -196,7 +196,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
             localStorage.setItem('aula_history', JSON.stringify(newHistory));
 
             clearInterval(interval);
-            onSessionGenerated(data);
+            onSessionGenerated(data, nivel);
         } catch (error) {
             clearInterval(interval);
             alert("Hubo un error. Por favor intenta de nuevo.");
@@ -207,7 +207,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     };
 
     const loadFromHistory = (record: SessionRecord) => {
-        onSessionGenerated(record.data);
+        onSessionGenerated(record.data, 'Primaria'); // History doesn't store nivel, use default
     };
 
     const getGrades = () => {
@@ -311,8 +311,8 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                                         <button
                                             onClick={() => setShowImageOptions(!showImageOptions)}
                                             className={`p-2.5 rounded-xl transition-all duration-200 ${imageBase64
-                                                    ? 'bg-blue-500 text-white'
-                                                    : 'bg-white text-slate-400 hover:text-blue-500 shadow-sm border border-slate-200 hover:border-blue-300'
+                                                ? 'bg-blue-500 text-white'
+                                                : 'bg-white text-slate-400 hover:text-blue-500 shadow-sm border border-slate-200 hover:border-blue-300'
                                                 }`}
                                         >
                                             <Camera className="w-5 h-5" />
@@ -343,8 +343,8 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                                     <button
                                         onClick={toggleMic}
                                         className={`p-3 rounded-xl transition-all duration-200 ${isListening
-                                                ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 scale-110 animate-pulse'
-                                                : 'bg-white text-slate-400 hover:text-blue-500 shadow-sm border border-slate-200 hover:border-blue-300'
+                                            ? 'bg-red-500 text-white shadow-lg shadow-red-500/30 scale-110 animate-pulse'
+                                            : 'bg-white text-slate-400 hover:text-blue-500 shadow-sm border border-slate-200 hover:border-blue-300'
                                             }`}
                                     >
                                         {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -383,8 +383,8 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                             onClick={handleSubmit}
                             disabled={!canSubmit}
                             className={`w-full flex items-center justify-center py-4 px-6 rounded-2xl text-white font-bold text-lg shadow-lg transition-all transform active:scale-[0.98] ${canSubmit
-                                    ? 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-blue-500/30'
-                                    : 'bg-slate-300 cursor-not-allowed shadow-none'
+                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 shadow-blue-500/30'
+                                : 'bg-slate-300 cursor-not-allowed shadow-none'
                                 }`}
                         >
                             {loading ? (

@@ -1,4 +1,31 @@
 // ========================================
+// Organizer Types for Visual Diagrams
+// ========================================
+
+export type OrganizerType =
+  | 'mapa-conceptual'
+  | 'espina-pescado'
+  | 'cruz-esquematica'
+  | 'diagrama-flujo'
+  | 'cuadro-sinoptico'
+  | 'mapa-mental'
+  | 'linea-tiempo'
+  | 'cuadro-comparativo'
+  | 'arbol-ideas'
+  | 'diagrama-venn'
+  | 'otro';
+
+export interface Organizer {
+  id: string;
+  title: string;
+  type: OrganizerType;
+  description?: string;
+  mermaidCode: string;
+  textFallback: string;
+  notes?: string;
+}
+
+// ========================================
 // Resource Types for Virtual Resources
 // ========================================
 
@@ -80,8 +107,10 @@ export interface SessionData {
     aula: FichaContent;
     casa: FichaContent;
   };
-  // NEW: Structured virtual resources
+  // Virtual resources (images, videos, readings)
   recursos: Resource[];
+  // Visual organizers with Mermaid diagrams
+  organizadores: Organizer[];
 }
 
 export interface SessionRecord {

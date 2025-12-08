@@ -6,12 +6,17 @@ import { SessionData } from './types';
 
 type ViewState = 'home' | 'result' | 'resources';
 
+interface SessionContext {
+  data: SessionData;
+  nivel: string;
+}
+
 function App() {
   const [view, setView] = useState<ViewState>('home');
-  const [currentSession, setCurrentSession] = useState<SessionData | null>(null);
+  const [sessionContext, setSessionContext] = useState<SessionContext | null>(null);
 
-  const handleSessionGenerated = (data: SessionData) => {
-    setCurrentSession(data);
+  const handleSessionGenerated = (data: SessionData, nivel?: string) => {
+    setSessionContext({ data, nivel: nivel || 'Primaria' });
     setView('result');
     window.scrollTo(0, 0);
   };
@@ -33,16 +38,17 @@ function App() {
   return (
     <>
       {view === 'home' && <Home onSessionGenerated={handleSessionGenerated} />}
-      {view === 'result' && currentSession && (
+      {view === 'result' && sessionContext && (
         <SessionResult
-          data={currentSession}
+          data={sessionContext.data}
           onBack={handleBack}
           onViewResources={handleViewResources}
         />
       )}
-      {view === 'resources' && currentSession && (
+      {view === 'resources' && sessionContext && (
         <ResourcesPresenter
-          data={currentSession}
+          data={sessionContext.data}
+          nivel={sessionContext.nivel}
           onBack={handleBackToResult}
         />
       )}
