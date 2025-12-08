@@ -35,6 +35,8 @@ HG_sessionGen/
 │   └── geminiService.ts
 ├── tsconfig.json
 ├── types.ts
+├── utils
+│   └── markdownParser.tsx
 └── vite.config.ts
 ```
 
@@ -103,7 +105,7 @@ HG_sessionGen/
 
 ## File: `.env.local`
 ```local
-GEMINI_API_KEY = AIzaSyA2niuo0XtpyuQkiO5PewAH-VZu-a8X1SQ
+GEMINI_API_KEY = AIzaSyBXSaljEiB2QtEVRmQWtJFLj2fvIWqEd64
 ```
 
 ## File: `.gitignore`
@@ -147,11 +149,9 @@ type ViewState = 'home' | 'result';
 function App() {
   const [view, setView] = useState<ViewState>('home');
   const [currentSession, setCurrentSession] = useState<SessionData | null>(null);
-  const [currentFormat, setCurrentFormat] = useState<string>('minedu');
 
-  const handleSessionGenerated = (data: SessionData, formatId: string) => {
+  const handleSessionGenerated = (data: SessionData) => {
     setCurrentSession(data);
-    setCurrentFormat(formatId);
     setView('result');
     window.scrollTo(0, 0);
   };
@@ -164,7 +164,7 @@ function App() {
     <>
       {view === 'home' && <Home onSessionGenerated={handleSessionGenerated} />}
       {view === 'result' && currentSession && (
-        <SessionResult data={currentSession} formatId={currentFormat} onBack={handleBack} />
+        <SessionResult data={currentSession} onBack={handleBack} />
       )}
     </>
   );
@@ -177,20 +177,18 @@ export default App;
 ```tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { NIVELES, GRADOS_INICIAL, GRADOS_PRIMARIA, GRADOS_SECUNDARIA, AREAS } from '../constants';
-import { SessionRequest, SessionRecord, SessionData, FormatPackId } from '../types';
+import { SessionRequest, SessionRecord, SessionData } from '../types';
 import { SessionGenerator } from '../core/SessionGenerator';
-import { FormatPackManager } from '../core/FormatPackManager';
-import { Mic, Loader2, Sparkles, History, ArrowRight, Settings2 } from 'lucide-react';
+import { Mic, Loader2, Sparkles, History, ArrowRight } from 'lucide-react';
 
 interface HomeProps {
-  onSessionGenerated: (data: SessionData, formatId: string) => void;
+  onSessionGenerated: (data: SessionData) => void;
 }
 
 const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
   const [nivel, setNivel] = useState(NIVELES[1]);
   const [grado, setGrado] = useState(GRADOS_PRIMARIA[0]);
   const [area, setArea] = useState(AREAS[0]);
-  const [formatId, setFormatId] = useState<FormatPackId>('minedu');
   const [prompt, setPrompt] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -258,22 +256,21 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     }, 2500);
 
     try {
-        const request: SessionRequest = { nivel, grado, area, prompt, formatId };
+        const request: SessionRequest = { nivel, grado, area, prompt };
         const data = await SessionGenerator.generate(request);
         
         const newRecord: SessionRecord = {
             id: Date.now().toString(),
             timestamp: Date.now(),
             data,
-            preview: data.sessionTitle,
-            formatId: formatId
+            preview: data.sessionTitle
         };
         const newHistory = [newRecord, ...history].slice(0, 3);
         setHistory(newHistory);
         localStorage.setItem('aula_history', JSON.stringify(newHistory));
         
         clearInterval(interval);
-        onSessionGenerated(data, formatId);
+        onSessionGenerated(data);
     } catch (error) {
         clearInterval(interval);
         alert("Hubo un error. Por favor intenta de nuevo.");
@@ -284,7 +281,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
   };
 
   const loadFromHistory = (record: SessionRecord) => {
-      onSessionGenerated(record.data, record.formatId || 'minedu');
+      onSessionGenerated(record.data);
   };
 
   const getGrades = () => {
@@ -327,15 +324,6 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Área</label>
                     <select value={area} onChange={(e) => setArea(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
                         {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                </div>
-
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1 flex items-center gap-1">
-                        <Settings2 className="w-3 h-3" /> Formato de Exportación
-                    </label>
-                    <select value={formatId} onChange={(e) => setFormatId(e.target.value as FormatPackId)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
-                        {FormatPackManager.getAllPacks().map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                 </div>
 
@@ -401,248 +389,360 @@ import { SessionData, FichaContent } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X } from 'lucide-react';
+import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check } from 'lucide-react';
+import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 
 interface SessionResultProps {
-  data: SessionData;
-  formatId: string;
-  onBack: () => void;
+    data: SessionData;
+    formatId: string;
+    onBack: () => void;
 }
 
-const EditableList: React.FC<{ 
-    items: string[]; 
-    isEditing: boolean; 
-    onChange: (newItems: string[]) => void 
+// Tooltip component for better UX
+const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
+    <div className="relative group/tooltip">
+        {children}
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+            {text}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
+        </div>
+    </div>
+);
+
+const EditableList: React.FC<{
+    items: string[];
+    isEditing: boolean;
+    onChange: (newItems: string[]) => void
 }> = ({ items, isEditing, onChange }) => {
     if (isEditing) {
         return (
-            <textarea 
-                className="w-full p-2 text-sm border border-slate-300 rounded-md focus:ring-2 focus:ring-primary focus:border-transparent min-h-[100px]"
+            <textarea
+                className="w-full p-3 text-sm border-2 border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-h-[120px] bg-emerald-50/30 transition-all duration-200"
                 value={items.join('\n')}
                 onChange={(e) => onChange(e.target.value.split('\n'))}
+                placeholder="Escribe cada elemento en una línea separada..."
             />
         );
     }
     return (
-        <ul className="text-slate-800 text-sm leading-relaxed space-y-1">
+        <ul className="text-slate-800 text-sm leading-relaxed space-y-1.5">
             {items.map((item, idx) => (
                 <li key={idx} className="flex items-start">
-                    <span className="mr-2 text-primary">•</span>
-                    <span>{item}</span>
+                    <span className="mr-2 text-primary font-bold">•</span>
+                    <MarkdownText text={item} />
                 </li>
             ))}
         </ul>
     );
 };
 
-const SectionHeader: React.FC<{ 
-    title: string; 
-    icon: React.ReactNode; 
-    colorClass: string; 
+const SectionHeader: React.FC<{
+    title: string;
+    icon: React.ReactNode;
+    colorClass: string;
     onRegenerate?: () => void;
     isLoading?: boolean;
-}> = ({ title, icon, colorClass, onRegenerate, isLoading }) => (
-    <div className={`px-6 py-3 border-b flex items-center justify-between ${colorClass}`}>
+    isEditing?: boolean;
+}> = ({ title, icon, colorClass, onRegenerate, isLoading, isEditing }) => (
+    <div className={`px-6 py-4 border-b flex items-center justify-between ${colorClass} ${isEditing ? 'ring-2 ring-emerald-400 ring-inset' : ''}`}>
         <div className="flex items-center gap-2">
             {icon}
-            <h3 className="font-bold">{title}</h3>
+            <h3 className="font-bold text-lg">{title}</h3>
         </div>
         {onRegenerate && (
-            <button 
-                onClick={onRegenerate}
-                disabled={isLoading}
-                className="p-1.5 rounded-full hover:bg-black/5 text-slate-500 hover:text-primary transition-colors"
-                title="Regenerar sección"
-            >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
+            <Tooltip text={isEditing ? "Regenerar con IA" : "Activa el modo edición para regenerar"}>
+                <button
+                    onClick={isEditing ? onRegenerate : undefined}
+                    disabled={isLoading || !isEditing}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${isEditing
+                        ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow-md hover:shadow-lg transform hover:scale-105'
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                        }`}
+                >
+                    <Sparkles className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} />
+                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">{isLoading ? 'Regenerando...' : 'Regenerar'}</span>
+                </button>
+            </Tooltip>
         )}
     </div>
 );
 
 const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
-  const [data, setData] = useState(initialData);
-  const [isEditing, setIsEditing] = useState(false);
-  const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
-  const [regenerating, setRegenerating] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+    const [data, setData] = useState(initialData);
+    const [isEditing, setIsEditing] = useState(false);
+    const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
+    const [regenerating, setRegenerating] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
-  const handleCopyLatex = () => {
-    const latex = ExportManager.generateLatex(data, formatId);
-    copyToClipboard(latex);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+    const handleCopyLatex = () => {
+        const latex = ExportManager.generateLatex(data);
+        copyToClipboard(latex);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
-  const handlePrint = (section: 'session' | 'ficha_aula' | 'ficha_casa') => {
-    setPrintSection(section);
-    setTimeout(() => {
-        window.print();
-        setPrintSection('none');
-    }, 100);
-  };
+    const handlePrint = (section: 'session' | 'ficha_aula' | 'ficha_casa') => {
+        setPrintSection(section);
+        setTimeout(() => {
+            window.print();
+            setPrintSection('none');
+        }, 100);
+    };
 
-  const handleRegenerate = async (section: keyof SessionData, instructions: string) => {
-    if (!confirm("¿Deseas regenerar esta sección? Se perderán los cambios manuales.")) return;
-    setRegenerating(section);
-    try {
-        const newData = await SessionGenerator.regenerateSection(data, section, instructions);
-        setData(prev => ({ ...prev, [section]: newData }));
-    } catch (e) {
-        alert("Error regenerando sección.");
-    } finally {
-        setRegenerating(null);
-    }
-  };
+    const handleRegenerate = async (section: keyof SessionData, instructions: string) => {
+        if (!confirm("¿Deseas regenerar esta sección? Se perderán los cambios manuales.")) return;
+        setRegenerating(section);
+        try {
+            const newData = await SessionGenerator.regenerateSection(data, section, instructions);
+            setData(prev => ({ ...prev, [section]: newData }));
+        } catch (e) {
+            alert("Error regenerando sección.");
+        } finally {
+            setRegenerating(null);
+        }
+    };
 
-  // Helper to update deeply nested state
-  const updateSection = (section: keyof SessionData, field: string, value: any) => {
-      setData(prev => ({
-          ...prev,
-          [section]: {
-              ...prev[section] as any,
-              [field]: value
-          }
-      }));
-  };
+    // Helper to update deeply nested state
+    const updateSection = (section: keyof SessionData, field: string, value: any) => {
+        setData(prev => ({
+            ...prev,
+            [section]: {
+                ...prev[section] as any,
+                [field]: value
+            }
+        }));
+    };
 
-  const isPrinting = printSection !== 'none';
-  const showSession = !isPrinting || printSection === 'session';
-  const showFichaAula = !isPrinting || printSection === 'ficha_aula';
-  const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
+    const isPrinting = printSection !== 'none';
+    const showSession = !isPrinting || printSection === 'session';
+    const showFichaAula = !isPrinting || printSection === 'ficha_aula';
+    const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
 
-  return (
-    <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''}`}>
-      
-      {/* Navbar */}
-      <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm no-print">
-        <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900">
-          <ArrowLeft className="w-5 h-5 mr-1" /> Back
-        </button>
-        <div className="flex items-center gap-2">
-            <button 
-                onClick={() => setIsEditing(!isEditing)} 
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${isEditing ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-            >
-                {isEditing ? <><Save className="w-4 h-4" /> Guardar</> : <><PenSquare className="w-4 h-4" /> Editar</>}
-            </button>
-            <button onClick={handleCopyLatex} className="p-2 text-slate-600 hover:bg-slate-100 rounded-full">
-                <FileJson className={`w-5 h-5 ${copied ? 'text-green-600' : ''}`} />
-            </button>
-            
-            <div className="relative group">
-                <button className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-blue-700">
-                    <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar PDF</span>
+    return (
+        <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''}`}>
+
+
+            {/* Navbar */}
+            <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm no-print">
+                <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900 font-medium">
+                    <ArrowLeft className="w-5 h-5 mr-1" /> Volver
                 </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-100 p-1 hidden group-hover:block z-30">
-                    <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Sesión</button>
-                    <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Ficha Aula</button>
-                    <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded">PDF Ficha Casa</button>
+                <div className="flex items-center gap-3">
+                    {/* EDIT BUTTON - Larger and more prominent */}
+                    <Tooltip text={isEditing ? "Guardar cambios" : "Editar contenido de la sesión"}>
+                        <button
+                            onClick={() => setIsEditing(!isEditing)}
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 transform hover:scale-105 shadow-md ${isEditing
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 ring-2 ring-emerald-300 ring-offset-2'
+                                : 'bg-gradient-to-r from-slate-700 to-slate-800 text-white hover:from-slate-800 hover:to-slate-900'
+                                }`}
+                        >
+                            {isEditing ? (
+                                <>
+                                    <Check className="w-5 h-5" />
+                                    <span>Guardar</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Edit3 className="w-5 h-5" />
+                                    <span>Editar Sesión</span>
+                                </>
+                            )}
+                        </button>
+                    </Tooltip>
+
+                    <Tooltip text={copied ? "¡Copiado!" : "Copiar como LaTeX"}>
+                        <button
+                            onClick={handleCopyLatex}
+                            className={`p-2.5 rounded-xl transition-all duration-200 ${copied ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                            <FileJson className="w-5 h-5" />
+                        </button>
+                    </Tooltip>
+
+                    <div className="relative group">
+                        <button className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all">
+                            <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar PDF</span>
+                        </button>
+                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 hidden group-hover:block z-30">
+                            <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📄 PDF Sesión</button>
+                            <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📝 PDF Ficha Aula</button>
+                            <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">🏠 PDF Ficha Casa</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-      </div>
 
-      <div className="max-w-3xl mx-auto px-4 py-6 print:px-0 print:py-0 print:max-w-none">
-        
-        {/* SESSION VIEW */}
-        <div className={showSession ? 'block' : 'hidden'}>
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border-none">
-                <h1 className="text-2xl font-bold text-slate-900 mb-2">{data.sessionTitle}</h1>
-                <p className="text-slate-500">{data.area} • {data.cycleGrade}</p>
-            </div>
-
-            <div className="space-y-6">
-                {/* INICIO */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
-                    <SectionHeader 
-                        title="Inicio" 
-                        icon={<Clock className="w-4 h-4" />} 
-                        colorClass="bg-blue-50 text-blue-800 border-blue-100"
-                        onRegenerate={isEditing ? () => handleRegenerate('inicio', 'Cambia la motivación por algo más participativo.') : undefined}
-                        isLoading={regenerating === 'inicio'}
-                    />
-                    <div className="p-6 space-y-4">
-                        <div className="space-y-1">
-                            <span className="text-xs font-bold text-slate-400 uppercase">Motivación</span>
-                            <EditableList items={data.inicio.motivacion} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'motivacion', val)} />
+            {/* Edit Mode Banner - Floating indicator */}
+            {isEditing && (
+                <div className="sticky top-[60px] z-10 mx-4 mt-4 no-print">
+                    <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white px-6 py-3 rounded-xl shadow-lg flex items-center justify-between animate-pulse">
+                        <div className="flex items-center gap-3">
+                            <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
+                            <span className="font-bold">✏️ Modo Edición Activo</span>
+                            <span className="text-emerald-100 text-sm hidden sm:inline">— Haz clic en los textos para editarlos o usa los botones "Regenerar" para crear nuevo contenido con IA</span>
                         </div>
-                        <div className="space-y-1">
-                            <span className="text-xs font-bold text-slate-400 uppercase">Saberes Previos</span>
-                            <EditableList items={data.inicio.saberesPrevios} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'saberesPrevios', val)} />
+                        <button
+                            onClick={() => setIsEditing(false)}
+                            className="flex items-center gap-1 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                            Salir
+                        </button>
+                    </div>
+                </div>
+            )}
+
+
+            <div className="max-w-3xl mx-auto px-4 py-6 print:px-0 print:py-0 print:max-w-none">
+
+                {/* SESSION VIEW */}
+                <div className={showSession ? 'block' : 'hidden'}>
+                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border-none">
+                        <h1 className="text-2xl font-bold text-slate-900 mb-2">{data.sessionTitle}</h1>
+                        <p className="text-slate-500">{data.area} • {data.cycleGrade}</p>
+                    </div>
+
+                    <div className="space-y-6">
+                        {/* INICIO */}
+                        <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
+                            <SectionHeader
+                                title="Inicio"
+                                icon={<Clock className="w-5 h-5" />}
+                                colorClass="bg-blue-50 text-blue-800 border-blue-100"
+                                onRegenerate={() => handleRegenerate('inicio', 'Cambia la motivación por algo más participativo y lúdico.')}
+                                isLoading={regenerating === 'inicio'}
+                                isEditing={isEditing}
+                            />
+                            <div className="p-6 space-y-4">
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivación</span>
+                                    <EditableList items={data.inicio.motivacion} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'motivacion', val)} />
+                                </div>
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saberes Previos</span>
+                                    <EditableList items={data.inicio.saberesPrevios} isEditing={isEditing} onChange={(val) => updateSection('inicio', 'saberesPrevios', val)} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* DESARROLLO */}
+                        <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
+                            <SectionHeader
+                                title="Desarrollo"
+                                icon={<BookOpen className="w-5 h-5" />}
+                                colorClass="bg-indigo-50 text-indigo-800 border-indigo-100"
+                                onRegenerate={() => handleRegenerate('desarrollo', 'Genera estrategias más interactivas y dinámicas.')}
+                                isLoading={regenerating === 'desarrollo'}
+                                isEditing={isEditing}
+                            />
+                            <div className="p-6">
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias</span>
+                                    <EditableList items={data.desarrollo.estrategias} isEditing={isEditing} onChange={(val) => updateSection('desarrollo', 'estrategias', val)} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* CIERRE */}
+                        <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
+                            <SectionHeader
+                                title="Cierre"
+                                icon={<Clock className="w-5 h-5" />}
+                                colorClass="bg-amber-50 text-amber-800 border-amber-100"
+                                onRegenerate={() => handleRegenerate('cierre', 'Mejora las estrategias de cierre con más reflexión.')}
+                                isLoading={regenerating === 'cierre'}
+                                isEditing={isEditing}
+                            />
+                            <div className="p-6">
+                                <div className="space-y-2">
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias de Cierre</span>
+                                    <EditableList items={data.cierre.estrategias} isEditing={isEditing} onChange={(val) => updateSection('cierre', 'estrategias', val)} />
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* DESARROLLO */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
-                    <SectionHeader 
-                        title="Desarrollo" 
-                        icon={<BookOpen className="w-4 h-4" />} 
-                        colorClass="bg-indigo-50 text-indigo-800 border-indigo-100"
-                    />
-                    <div className="p-6">
-                        <div className="space-y-1">
-                            <span className="text-xs font-bold text-slate-400 uppercase">Estrategias</span>
-                            <EditableList items={data.desarrollo.estrategias} isEditing={isEditing} onChange={(val) => updateSection('desarrollo', 'estrategias', val)} />
+                {/* FICHA AULA */}
+                <div className={`mt-8 ${showFichaAula ? 'block' : 'hidden'}`}>
+                    <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
+                        <div className="border-b border-blue-100 pb-4 mb-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <BookOpen className="w-4 h-4 text-blue-600" />
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-900">Ficha de Aplicación: Aula</h2>
+                            </div>
+                            <p className="text-sm text-slate-500 ml-10">{data.fichas.aula.titulo}</p>
+                        </div>
+                        <div className="space-y-3">
+                            {groupItemsByHeaders(data.fichas.aula.items).map((group, groupIdx) => (
+                                <div key={groupIdx} className="rounded-xl overflow-hidden">
+                                    {group.header && (
+                                        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 font-bold text-sm">
+                                            {group.header}
+                                        </div>
+                                    )}
+                                    <div className={`${group.header ? 'bg-blue-50/50 border border-blue-100 border-t-0' : 'bg-slate-50 border border-slate-100'} p-4 space-y-2`}>
+                                        {group.items.map((item, i) => (
+                                            <div key={i} className="flex gap-3 items-start text-sm">
+                                                <span className="text-blue-500 font-bold mt-0.5">›</span>
+                                                <MarkdownText text={item} className="text-slate-700 leading-relaxed" />
+                                            </div>
+                                        ))}
+                                        {group.items.length === 0 && !group.header && (
+                                            <p className="text-slate-400 italic text-sm">Sin contenido</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
 
-                {/* CIERRE */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
-                    <SectionHeader 
-                        title="Cierre" 
-                        icon={<Clock className="w-4 h-4" />} 
-                        colorClass="bg-slate-50 text-slate-800 border-slate-100"
-                    />
-                    <div className="p-6">
-                        <EditableList items={data.cierre.estrategias} isEditing={isEditing} onChange={(val) => updateSection('cierre', 'estrategias', val)} />
+                {/* FICHA CASA */}
+                <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
+                    <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
+                        <div className="border-b border-amber-100 pb-4 mb-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                                    <Home className="w-4 h-4 text-amber-600" />
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-900">Ficha de Extensión: Casa</h2>
+                            </div>
+                            <p className="text-sm text-slate-500 ml-10">{data.fichas.casa.titulo}</p>
+                        </div>
+                        <div className="space-y-3">
+                            {groupItemsByHeaders(data.fichas.casa.items).map((group, groupIdx) => (
+                                <div key={groupIdx} className="rounded-xl overflow-hidden">
+                                    {group.header && (
+                                        <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-5 py-3 font-bold text-sm">
+                                            {group.header}
+                                        </div>
+                                    )}
+                                    <div className={`${group.header ? 'bg-amber-50/50 border border-amber-100 border-t-0' : 'bg-slate-50 border border-slate-100'} p-4 space-y-2`}>
+                                        {group.items.map((item, i) => (
+                                            <div key={i} className="flex gap-3 items-start text-sm">
+                                                <span className="text-amber-500 font-bold mt-0.5">›</span>
+                                                <MarkdownText text={item} className="text-slate-700 leading-relaxed" />
+                                            </div>
+                                        ))}
+                                        {group.items.length === 0 && !group.header && (
+                                            <p className="text-slate-400 italic text-sm">Sin contenido</p>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        {/* FICHA AULA */}
-        <div className={`mt-8 ${showFichaAula ? 'block' : 'hidden'}`}>
-            <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
-                <div className="border-b pb-4 mb-4">
-                    <h2 className="text-xl font-bold">Ficha de Aplicación: Aula</h2>
-                    <p className="text-sm text-slate-500">{data.fichas.aula.titulo}</p>
-                </div>
-                <div className="space-y-4">
-                    {data.fichas.aula.items.map((item, i) => (
-                        <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
-                            <div className="font-bold text-slate-400">{i+1}.</div>
-                            <div className="text-slate-800">{item}</div>
-                        </div>
-                    ))}
-                </div>
             </div>
-        </div>
 
-        {/* FICHA CASA */}
-        <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
-             <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
-                <div className="border-b pb-4 mb-4">
-                    <h2 className="text-xl font-bold">Ficha de Extensión: Casa</h2>
-                    <p className="text-sm text-slate-500">{data.fichas.casa.titulo}</p>
-                </div>
-                <div className="space-y-4">
-                    {data.fichas.casa.items.map((item, i) => (
-                        <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
-                            <div className="font-bold text-slate-400">{i+1}.</div>
-                            <div className="text-slate-800">{item}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-
-      </div>
-      
-      {/* Hidden style for printing specific sections logic */}
-      <style>{`
+            {/* Hidden style for printing specific sections logic */}
+            <style>{`
         @media print {
             body { background: white; }
             .no-print { display: none !important; }
@@ -650,8 +750,8 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
             .print-mode .block { display: block !important; }
         }
       `}</style>
-    </div>
-  );
+        </div>
+    );
 };
 
 export default SessionResult;
@@ -681,8 +781,8 @@ export const AREAS = [
 
 ## File: `core\ExportManager.ts`
 ```ts
-import { SessionData, FormatPackId } from "../types";
-import { FormatPackManager } from "./FormatPackManager";
+import { SessionData } from "../types";
+import { LATEX_TEMPLATE } from "../formats";
 
 export class ExportManager {
   private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
@@ -695,9 +795,8 @@ export class ExportManager {
     return items.join(", ");
   }
 
-  static generateLatex(data: SessionData, formatId: string): string {
-    const pack = FormatPackManager.getPack(formatId);
-    let tex = pack.template;
+  static generateLatex(data: SessionData): string {
+    let tex = LATEX_TEMPLATE;
 
     // Metadata
     tex = tex.replace(/\[NOMBRE_SESION\]/g, data.sessionTitle);
@@ -934,7 +1033,7 @@ export class SessionGenerator {
 ```ts
 // Note: Templates are defined as strings to ensure compatibility without specific loaders.
 
-const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
+export const LATEX_TEMPLATE = `\\documentclass[a4paper,11pt]{article}
 \\usepackage[utf8]{inputenc}
 \\usepackage[spanish]{babel}
 \\usepackage{geometry}
@@ -954,7 +1053,7 @@ const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
 
 \\begin{center}
     \\textbf{\\Large [NOMBRE_SESION]}\\\\[0.2cm]
-    \\textbf{\\textit{\\small SESIÓN DE APRENDIZAJE - FORMATO MINEDU}}
+    \\textbf{\\textit{\\small SESIÓN DE APRENDIZAJE}}
 \\end{center}
 
 \\vspace{0.3cm}
@@ -1023,92 +1122,10 @@ const LATEX_MINEDU = `\\documentclass[a4paper,11pt]{article}
 
 \\end{document}`;
 
-const LATEX_COMPACTO = `\\documentclass[a4paper,10pt]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[spanish]{babel}
-\\usepackage{geometry}
-\\usepackage{enumitem}
-\\usepackage{titlesec}
-
-\\geometry{left=1.5cm, right=1.5cm, top=1.5cm, bottom=1.5cm}
-
-\\titleformat{\\section}{\\large\\bfseries}{}{0em}{}[\\titlerule]
-
-\\begin{document}
-
-\\noindent \\textbf{\\large [NOMBRE_SESION]} \\hfill \\textbf{[AREA]} \\\\
-\\small [CICLO_GRADO] | Docente: [DOCENTE]
-
-\\section*{Inicio}
-\\textbf{Motivación:} [MOTIVACION] \\\\
-\\textbf{Saberes Previos:} [SABERES_PREVIOS] \\\\
-\\textbf{Propósito:} [PROPOSITO] \\\\
-\\textit{Materiales:} [MATERIALES_INICIO]
-
-\\section*{Desarrollo}
-[ESTRATEGIAS_DESARROLLO] \\\\
-\\textit{Materiales:} [MATERIALES_DESARROLLO]
-
-\\section*{Cierre}
-[ESTRATEGIAS_CIERRE] \\\\
-\\textit{Reflexión:} [CONFLICTO_COGNITIVO]
-
-\\section*{Tarea}
-[ACTIVIDADES_CASA]
-
-\\end{document}`;
-
-const LATEX_RURAL = `\\documentclass[a4paper,12pt]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[spanish]{babel}
-\\usepackage{geometry}
-
-\\geometry{left=2.5cm, right=2.5cm, top=2.5cm, bottom=2.5cm}
-
-\\begin{document}
-
-\\begin{center}
-    \\textbf{\\LARGE [NOMBRE_SESION]}
-\\end{center}
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{Área:} [AREA] \\\\
-\\textbf{Grado:} [CICLO_GRADO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{1. NUESTRO PROPÓSITO:} \\\\
-[PROPOSITO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{2. APRENDEMOS (Inicio):} \\\\
-[MOTIVACION] \\\\
-[SABERES_PREVIOS]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{3. CONSTRUIMOS (Desarrollo):} \\\\
-[ESTRATEGIAS_DESARROLLO]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{4. COMPROBAMOS (Cierre):} \\\\
-[ESTRATEGIAS_CIERRE]
-
-\\vspace{0.5cm}
-
-\\noindent \\textbf{MATERIALES NECESARIOS:} \\\\
-[MATERIALES_INICIO]
-[MATERIALES_DESARROLLO]
-
-\\end{document}`;
-
 export const Templates = {
-  minedu: LATEX_MINEDU,
-  compacto: LATEX_COMPACTO,
-  rural: LATEX_RURAL
+  minedu: LATEX_TEMPLATE,
+  compacto: LATEX_TEMPLATE,
+  rural: LATEX_TEMPLATE,
 };
 ```
 
@@ -1449,7 +1466,6 @@ export interface SessionRecord {
   timestamp: number;
   data: SessionData;
   preview: string;
-  formatId: string;
 }
 
 export interface SessionRequest {
@@ -1457,7 +1473,6 @@ export interface SessionRequest {
   grado: string;
   area: string;
   prompt: string;
-  formatId: string;
 }
 
 export type FormatPackId = 'minedu' | 'compacto' | 'rural';
@@ -1467,6 +1482,117 @@ export interface FormatPack {
   name: string;
   description: string;
   template: string;
+}
+```
+
+## File: `utils\markdownParser.tsx`
+```tsx
+import React from 'react';
+
+/**
+ * Parse basic markdown syntax and return React elements
+ * Supports: **bold**, *italic*, `code`, and combinations
+ */
+export function parseMarkdown(text: string): React.ReactNode {
+    if (!text) return null;
+
+    // Split by markdown patterns and create React elements
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+
+    // Regex to match **bold**, *italic*, `code`
+    const pattern = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+    let match;
+    let key = 0;
+
+    while ((match = pattern.exec(text)) !== null) {
+        // Add text before the match
+        if (match.index > lastIndex) {
+            parts.push(text.slice(lastIndex, match.index));
+        }
+
+        const fullMatch = match[1];
+
+        if (fullMatch.startsWith('**') && fullMatch.endsWith('**')) {
+            // Bold text
+            const content = match[2];
+            parts.push(<strong key={key++} className="font-bold text-slate-900">{content}</strong>);
+        } else if (fullMatch.startsWith('*') && fullMatch.endsWith('*') && !fullMatch.startsWith('**')) {
+            // Italic text
+            const content = match[3];
+            parts.push(<em key={key++} className="italic">{content}</em>);
+        } else if (fullMatch.startsWith('`') && fullMatch.endsWith('`')) {
+            // Code text
+            const content = match[4];
+            parts.push(<code key={key++} className="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-slate-700">{content}</code>);
+        }
+
+        lastIndex = match.index + fullMatch.length;
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+}
+
+/**
+ * Component to render markdown text
+ */
+export const MarkdownText: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => {
+    return <span className={className}>{parseMarkdown(text)}</span>;
+};
+
+/**
+ * Check if an item looks like a section header (starts with ** or is all caps)
+ */
+export function isHeaderItem(item: string): boolean {
+    return item.startsWith('**') && item.endsWith('**') ||
+        item === item.toUpperCase() && item.length > 3;
+}
+
+/**
+ * Group items by headers for better display
+ * Returns grouped structure with headers and their sub-items
+ */
+export interface GroupedItems {
+    header: string | null;
+    items: string[];
+}
+
+export function groupItemsByHeaders(items: string[]): GroupedItems[] {
+    const groups: GroupedItems[] = [];
+    let currentGroup: GroupedItems = { header: null, items: [] };
+
+    for (const item of items) {
+        // Check if this item is a header (wrapped in ** or looks like a group header)
+        const isHeader = (item.startsWith('**') && item.endsWith('**')) ||
+            (item.includes(':') && item.split(':')[0].startsWith('**'));
+
+        if (isHeader) {
+            // Save previous group if it has items
+            if (currentGroup.items.length > 0 || currentGroup.header) {
+                groups.push(currentGroup);
+            }
+            // Start new group with this header
+            currentGroup = {
+                header: item.replace(/\*\*/g, ''), // Remove ** from header
+                items: []
+            };
+        } else if (item.trim()) {
+            // Add non-empty item to current group
+            currentGroup.items.push(item);
+        }
+    }
+
+    // Don't forget the last group
+    if (currentGroup.items.length > 0 || currentGroup.header) {
+        groups.push(currentGroup);
+    }
+
+    return groups;
 }
 
 ```

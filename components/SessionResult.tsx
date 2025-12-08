@@ -4,6 +4,7 @@ import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
 import { ArrowLeft, Printer, FileJson, BookOpen, GraduationCap, Clock, Home, PenSquare, RefreshCw, Save, X, Sparkles, Edit3, Check } from 'lucide-react';
+import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 
 interface SessionResultProps {
     data: SessionData;
@@ -42,7 +43,7 @@ const EditableList: React.FC<{
             {items.map((item, idx) => (
                 <li key={idx} className="flex items-start">
                     <span className="mr-2 text-primary font-bold">•</span>
-                    <span>{item}</span>
+                    <MarkdownText text={item} />
                 </li>
             ))}
         </ul>
@@ -89,7 +90,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     const [copied, setCopied] = useState(false);
 
     const handleCopyLatex = () => {
-        const latex = ExportManager.generateLatex(data, formatId);
+        const latex = ExportManager.generateLatex(data);
         copyToClipboard(latex);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -280,16 +281,35 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
 
                 {/* FICHA AULA */}
                 <div className={`mt-8 ${showFichaAula ? 'block' : 'hidden'}`}>
-                    <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
-                        <div className="border-b pb-4 mb-4">
-                            <h2 className="text-xl font-bold">Ficha de Aplicación: Aula</h2>
-                            <p className="text-sm text-slate-500">{data.fichas.aula.titulo}</p>
+                    <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
+                        <div className="border-b border-blue-100 pb-4 mb-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                    <BookOpen className="w-4 h-4 text-blue-600" />
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-900">Ficha de Aplicación: Aula</h2>
+                            </div>
+                            <p className="text-sm text-slate-500 ml-10">{data.fichas.aula.titulo}</p>
                         </div>
-                        <div className="space-y-4">
-                            {data.fichas.aula.items.map((item, i) => (
-                                <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
-                                    <div className="font-bold text-slate-400">{i + 1}.</div>
-                                    <div className="text-slate-800">{item}</div>
+                        <div className="space-y-3">
+                            {groupItemsByHeaders(data.fichas.aula.items).map((group, groupIdx) => (
+                                <div key={groupIdx} className="rounded-xl overflow-hidden">
+                                    {group.header && (
+                                        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 font-bold text-sm">
+                                            {group.header}
+                                        </div>
+                                    )}
+                                    <div className={`${group.header ? 'bg-blue-50/50 border border-blue-100 border-t-0' : 'bg-slate-50 border border-slate-100'} p-4 space-y-2`}>
+                                        {group.items.map((item, i) => (
+                                            <div key={i} className="flex gap-3 items-start text-sm">
+                                                <span className="text-blue-500 font-bold mt-0.5">›</span>
+                                                <MarkdownText text={item} className="text-slate-700 leading-relaxed" />
+                                            </div>
+                                        ))}
+                                        {group.items.length === 0 && !group.header && (
+                                            <p className="text-slate-400 italic text-sm">Sin contenido</p>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -298,16 +318,35 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
 
                 {/* FICHA CASA */}
                 <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
-                    <div className="bg-white border border-slate-200 rounded-lg p-8 print:border-none print:p-0">
-                        <div className="border-b pb-4 mb-4">
-                            <h2 className="text-xl font-bold">Ficha de Extensión: Casa</h2>
-                            <p className="text-sm text-slate-500">{data.fichas.casa.titulo}</p>
+                    <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
+                        <div className="border-b border-amber-100 pb-4 mb-6">
+                            <div className="flex items-center gap-2 mb-2">
+                                <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                                    <Home className="w-4 h-4 text-amber-600" />
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-900">Ficha de Extensión: Casa</h2>
+                            </div>
+                            <p className="text-sm text-slate-500 ml-10">{data.fichas.casa.titulo}</p>
                         </div>
-                        <div className="space-y-4">
-                            {data.fichas.casa.items.map((item, i) => (
-                                <div key={i} className="flex gap-4 p-4 border border-slate-100 rounded-lg bg-slate-50 print:bg-white print:border-slate-300">
-                                    <div className="font-bold text-slate-400">{i + 1}.</div>
-                                    <div className="text-slate-800">{item}</div>
+                        <div className="space-y-3">
+                            {groupItemsByHeaders(data.fichas.casa.items).map((group, groupIdx) => (
+                                <div key={groupIdx} className="rounded-xl overflow-hidden">
+                                    {group.header && (
+                                        <div className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-5 py-3 font-bold text-sm">
+                                            {group.header}
+                                        </div>
+                                    )}
+                                    <div className={`${group.header ? 'bg-amber-50/50 border border-amber-100 border-t-0' : 'bg-slate-50 border border-slate-100'} p-4 space-y-2`}>
+                                        {group.items.map((item, i) => (
+                                            <div key={i} className="flex gap-3 items-start text-sm">
+                                                <span className="text-amber-500 font-bold mt-0.5">›</span>
+                                                <MarkdownText text={item} className="text-slate-700 leading-relaxed" />
+                                            </div>
+                                        ))}
+                                        {group.items.length === 0 && !group.header && (
+                                            <p className="text-slate-400 italic text-sm">Sin contenido</p>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
