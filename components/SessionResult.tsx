@@ -51,22 +51,26 @@ const SmartTextRenderer: React.FC<{
                     // Find actual image object if ID matches
                     const img = imgMatch ? images?.find(i => i.id === imgMatch.id) : undefined;
 
-                    if (img && img.base64Data) {
+                    if (img && (img.base64Data || img.isLoading)) {
                         return (
                             <button
                                 key={index}
                                 onClick={() => onOpenImage(img)}
-                                className="inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-sm font-semibold hover:bg-indigo-100 hover:scale-105 transition-all align-middle cursor-pointer"
+                                className={`inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 border rounded-md text-sm font-semibold transition-all align-middle cursor-pointer ${
+                                    img.isLoading 
+                                    ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-wait'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:scale-105'
+                                }`}
                             >
-                                <ImageIcon className="w-3.5 h-3.5" />
-                                <span className="underline decoration-indigo-300 underline-offset-2">{img.title}</span>
+                                {img.isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <ImageIcon className="w-3.5 h-3.5" />}
+                                <span className="underline decoration-indigo-300 underline-offset-2">
+                                    {img.title}
+                                    {img.isLoading && '...'}
+                                </span>
                             </button>
                         );
-                    } else if (img && !img.base64Data) {
-                        // Fallback: Image exists in metadata but not generated yet (rare in this flow)
-                        return <span key={index} className="text-slate-400 italic mx-1 text-xs">[Generando: {titleRef}...]</span>;
                     } else {
-                        // Fallback if image not found
+                        // Fallback if image not found or failed
                         return <span key={index} className="text-slate-500 italic mx-1">[{titleRef}]</span>;
                     }
                 }
@@ -226,8 +230,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     const showFichaAula = !isPrinting || printSection === 'ficha_aula';
     const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
 
-    // Check if images need recovery (have prompt but missing data)
-    const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt);
+    // Check if images need recovery.
+    // Logic fix: It is ONLY "missing" if it has no data AND isn't currently loading.
+    const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt && !img.isLoading);
+    
+    // Check if we have any images (loading or loaded) to show presentation button
+    const hasResources = data.resources && data.resources.images && data.resources.images.length > 0;
 
     return (
         <>
@@ -263,7 +271,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                             </Tooltip>
                         )}
 
-                        {data.resources && !hasMissingImages && (
+                        {hasResources && !hasMissingImages && (
                             <Tooltip text="Ver todos los recursos (Organizador + Imágenes)">
                                 <button
                                     onClick={() => setShowPresentation(true)}
@@ -316,7 +324,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                 )}
 
                 {/* Mobile Presentation Button */}
-                {!showPresentation && data.resources && !hasMissingImages && (
+                {!showPresentation && hasResources && !hasMissingImages && (
                     <div className="sm:hidden mx-4 mt-4">
                         <button onClick={() => setShowPresentation(true)} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 text-white shadow-lg">
                             <MonitorPlay className="w-5 h-5" />

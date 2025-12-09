@@ -5,10 +5,11 @@ import { SessionGenerator } from '../core/SessionGenerator';
 import { Mic, Loader2, Sparkles, History, ArrowRight } from 'lucide-react';
 
 interface HomeProps {
-    onSessionGenerated: (data: SessionData, onResourceUpdate: ResourceUpdateCallback) => void;
+    onSessionGenerated: (data: SessionData) => void;
+    onResourceUpdate: ResourceUpdateCallback;
 }
 
-const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
+const Home: React.FC<HomeProps> = ({ onSessionGenerated, onResourceUpdate }) => {
     const [nivel, setNivel] = useState(NIVELES[1]);
     const [grado, setGrado] = useState(GRADOS_PRIMARIA[0]);
     const [area, setArea] = useState(AREAS[0]);
@@ -18,9 +19,6 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     const [loadingText, setLoadingText] = useState('Generando sesión...');
     const [history, setHistory] = useState<SessionRecord[]>([]);
     const recognitionRef = useRef<any>(null);
-
-    // Ref to store latest resource update callback (avoids stale closures)
-    const resourceUpdateCallbackRef = useRef<ResourceUpdateCallback | null>(null);
 
     // Update grades when level changes
     useEffect(() => {
@@ -84,15 +82,10 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
         try {
             const request: SessionRequest = { nivel, grado, area, prompt };
 
-            // Create the resource update callback that will be passed to parent
-            const handleResourceUpdate: ResourceUpdateCallback = (type, id, resource) => {
-                // This callback will be invoked by SessionGenerator when each resource completes
-                // The parent (App) will handle the actual state update
-                resourceUpdateCallbackRef.current?.(type, id, resource);
-            };
-
-            // Use non-blocking generation - returns immediately with loading placeholders
-            const data = await SessionGenerator.generateWithCallback(request, handleResourceUpdate);
+            // Pass the parent's onResourceUpdate directly. 
+            // App.tsx manages the session state, so this connects the background 
+            // process directly to the App's state updater.
+            const data = await SessionGenerator.generateWithCallback(request, onResourceUpdate);
 
             const newRecord: SessionRecord = {
                 id: Date.now().toString(),
@@ -129,9 +122,8 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
 
             clearInterval(interval);
 
-            // Pass data AND the callback to parent - UI shows immediately
-            // The callback ref pattern allows background tasks to update state
-            onSessionGenerated(data, handleResourceUpdate);
+            // Notify parent to switch view and show data
+            onSessionGenerated(data);
 
         } catch (error) {
             clearInterval(interval);
@@ -143,7 +135,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     };
 
     const loadFromHistory = (record: SessionRecord) => {
-        onSessionGenerated(record.data, () => {});
+        onSessionGenerated(record.data);
     };
 
     const getGrades = () => {
