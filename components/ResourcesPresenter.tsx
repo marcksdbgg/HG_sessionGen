@@ -33,16 +33,25 @@ interface ResourcesPresenterProps {
  * Extract YouTube video ID from URL
  */
 const getYouTubeVideoId = (url: string): string | null => {
+    if (!url) return null;
+    const cleanUrl = url.trim();
     const patterns = [
-        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-        /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
-        /m\.youtube\.com\/watch\?v=([^&\n?#]+)/
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
+        /youtube\.com\/.*[?&]v=([^&\n?#]+)/
     ];
     for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
+        const match = cleanUrl.match(pattern);
+        if (match && match[1]) return match[1];
     }
     return null;
+};
+
+/**
+ * Check if URL is a Google Grounding/Vertex redirect (which breaks img tags)
+ */
+const isGroundingRedirect = (url: string): boolean => {
+    return url.includes('vertexaisearch.cloud.google.com') ||
+        url.includes('google.com/grounding');
 };
 
 /**
@@ -314,11 +323,27 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         )}
 
                         {selectedResource.type === 'IMAGE_SEARCH' && (selectedResource as ExternalImageResource).url && (
-                            <img
-                                src={(selectedResource as ExternalImageResource).url}
-                                alt={selectedResource.title}
-                                className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
-                            />
+                            isGroundingRedirect((selectedResource as ExternalImageResource).url!) ? (
+                                <div className="flex flex-col items-center justify-center text-center p-8 bg-slate-900 rounded-xl border border-slate-700 max-w-md">
+                                    <ExternalLink className="w-16 h-16 text-sky-400 mb-4" />
+                                    <h4 className="text-xl font-bold text-white mb-2">Imagen Externa</h4>
+                                    <p className="text-slate-400 mb-6">Esta imagen se encuentra en un sitio externo protegido.</p>
+                                    <a
+                                        href={(selectedResource as ExternalImageResource).url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-6 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-500 transition font-bold"
+                                    >
+                                        Ver imagen original
+                                    </a>
+                                </div>
+                            ) : (
+                                <img
+                                    src={(selectedResource as ExternalImageResource).url}
+                                    alt={selectedResource.title}
+                                    className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+                                />
+                            )
                         )}
 
                         {selectedResource.type === 'VIDEO_SEARCH' && (selectedResource as ExternalVideoResource).url && (

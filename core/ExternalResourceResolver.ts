@@ -4,13 +4,13 @@ export class ExternalResourceResolver {
   /**
    * Resolves a search query to a real URL using Google Search Grounding.
    */
-  static async resolveLink(query: string, type: 'video' | 'image'): Promise<{title: string, url: string} | null> {
+  static async resolveLink(query: string, type: 'video' | 'image'): Promise<{ title: string, url: string } | null> {
     try {
-      const prompt = type === 'video' 
-        ? `Busca en YouTube un video educativo sobre: "${query}". Devuelve solo el Título exacto y la URL del primer resultado válido. Prioriza contenido educativo.`
-        : `Busca una imagen educativa real de: "${query}". Devuelve solo el Título y la URL de la fuente de la imagen.`;
+      // Enhanced prompt to ask for direct URLs in text
+      const prompt = type === 'video'
+        ? `Busca en YouTube un video educativo sobre: "${query}". Responde con el Título exacto y la URL directa (youtube.com). Prioriza videos cortos y oficiales.`
+        : `Busca una imagen educativa real de: "${query}". Responde con el Título y la URL directa de la imagen (jpg/png) si es posible. Si no, la URL de la página.`;
 
-      // Use a model capable of tools/grounding
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -19,23 +19,49 @@ export class ExternalResourceResolver {
         }
       });
 
-      // 1. Try to extract from Grounding Metadata (Most reliable for 2.5)
+      // 1. Try to extract from Grounding Metadata
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      let groundingUrl = null;
+      let groundingTitle = null;
+
       if (chunks && chunks.length > 0) {
         const webChunk = chunks.find(c => c.web?.uri);
         if (webChunk?.web) {
-            return {
-                title: webChunk.web.title || query,
-                url: webChunk.web.uri
-            };
+          groundingUrl = webChunk.web.uri;
+          groundingTitle = webChunk.web.title;
         }
       }
-      
-      // 2. Fallback: Parse text response if grounding chunks are tricky but text has link
+
+      // 2. Try to extract from Text Response (often has better/direct links)
       const text = response.text || "";
-      const urlMatch = text.match(/https?:\/\/[^\s)]+/); // Basic URL extraction
-      if (urlMatch) {
-          return { title: query, url: urlMatch[0] };
+      // Regex to find http/https URLs
+      const urlMatches = text.matchAll(/https?:\/\/[^\s)"]+/g);
+      const urlsInText = Array.from(urlMatches).map(m => m[0]);
+
+      // Preference logic:
+      // If we have a YouTube URL in text, use it (avoid grounding redirects for YT)
+      if (type === 'video') {
+        const ytUrl = urlsInText.find(u => u.includes('youtube.com') || u.includes('youtu.be'));
+        if (ytUrl) return { title: groundingTitle || query, url: ytUrl };
+      }
+
+      // If we have a direct image extension in text, use it
+      if (type === 'image') {
+        const imgUrl = urlsInText.find(u => /\.(jpg|jpeg|png|webp)$/i.test(u));
+        if (imgUrl) return { title: groundingTitle || query, url: imgUrl };
+      }
+
+      // Fallback to grounding URL if available
+      if (groundingUrl) {
+        return {
+          title: groundingTitle || query,
+          url: groundingUrl
+        };
+      }
+
+      // Last fallback: first URL in text
+      if (urlsInText.length > 0) {
+        return { title: query, url: urlsInText[0] };
       }
 
       return null;

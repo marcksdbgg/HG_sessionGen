@@ -23,19 +23,35 @@ interface ResourceCardProps {
 }
 
 /**
- * Extract YouTube video ID from URL
+ * Extract YouTube video ID from URL with robust regex
  */
 const getYouTubeVideoId = (url: string): string | null => {
+    if (!url) return null;
+
+    // Clean URL first
+    const cleanUrl = url.trim();
+
     const patterns = [
-        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-        /youtube\.com\/watch\?.*v=([^&\n?#]+)/
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
+        /youtube\.com\/.*[?&]v=([^&\n?#]+)/
     ];
+
     for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
+        const match = cleanUrl.match(pattern);
+        if (match && match[1]) {
+            // Check length to ensure it looks like an ID (usually 11 chars)
+            if (match[1].length >= 10) return match[1];
+        }
     }
-    // For vertex redirect URLs, just return null (we'll show as link)
     return null;
+};
+
+/**
+ * Check if URL is a Google Grounding/Vertex redirect (which breaks img tags)
+ */
+const isGroundingRedirect = (url: string): boolean => {
+    return url.includes('vertexaisearch.cloud.google.com') ||
+        url.includes('google.com/grounding');
 };
 
 /**
@@ -123,7 +139,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
                             </div>
                         );
                     }
-                    // For other video URLs, show link card
+                    // For other video URLs (or fallback), show link card
                     return (
                         <div className="aspect-video flex flex-col items-center justify-center bg-gradient-to-br from-red-900/30 to-rose-900/30">
                             <MonitorPlay className="w-12 h-12 text-red-400 mb-2" />
@@ -136,6 +152,18 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
 
             case 'IMAGE_SEARCH': {
                 const img = resource as ExternalImageResource;
+
+                // If it's a redirect/grounding URL or explicitly errored, show "Link" view
+                if (img.url && isGroundingRedirect(img.url)) {
+                    return (
+                        <div className="aspect-video flex flex-col items-center justify-center bg-slate-800/50">
+                            <ExternalLink className="w-8 h-8 text-sky-400 mb-2" />
+                            <span className="text-sky-400 text-sm font-medium">Ver imagen externa</span>
+                            <span className="text-slate-500 text-xs mt-1 text-center px-4">Fuente externa</span>
+                        </div>
+                    );
+                }
+
                 if (img.url && !imageError) {
                     return (
                         <div className="aspect-video relative overflow-hidden bg-slate-900">
