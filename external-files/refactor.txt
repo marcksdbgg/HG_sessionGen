@@ -1,4 +1,4 @@
-# Refactor Plan — Aula Express
+# Refactor Plan — Aula Express - refactor.md
 Fecha: 2025-12-08
 Objetivo: corregir bugs actuales, separar pipelines (texto vs recursos),
 robustecer prompts bajo Strategy + Registry y mejorar UX/performance.
