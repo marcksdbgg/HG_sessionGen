@@ -67,53 +67,55 @@ export const SESSION_SCHEMA: Schema = {
       required: ["aula", "casa"],
     },
     resources: {
-        type: Type.OBJECT,
-        description: "Recursos virtuales para proyectar en clase.",
-        properties: {
-            organizer: {
-                type: Type.OBJECT,
-                properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                    type: { type: Type.STRING, description: "Uno de: mapa-conceptual, mapa-mental, espina-pescado, cuadro-sinoptico, linea-tiempo, diagrama-flujo, diagrama-venn, cruz-esquematica, cuadro-comparativo, arbol-ideas" },
-                    mermaidCode: { type: Type.STRING, description: "Código Mermaid graph TD o mindmap. IMPORTANTE: 1. Textos de nodos entre comillas dobles. 2. 'graph TD' debe estar en su propia línea." },
-                    description: { type: Type.STRING, description: "Breve explicación del gráfico." },
-                    textFallback: { type: Type.STRING, description: "Versión texto plano del gráfico por si falla el render." }
-                },
-                required: ["id", "title", "type", "mermaidCode", "description"]
+      type: Type.OBJECT,
+      description: "Recursos virtuales para proyectar en clase. Flow A genera metadatos; Flow B genera contenido.",
+      properties: {
+        resources: {
+          type: Type.ARRAY,
+          description: "Lista unificada de recursos. El código procesará cada tipo en Flow B.",
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: {
+                type: Type.STRING,
+                description: "ID único formato: tipo-momento-slug (ej: ai_image-inicio-mapa-vocales)"
+              },
+              type: {
+                type: Type.STRING,
+                description: "Tipo de recurso: AI_IMAGE | DIAGRAM | VIDEO_SEARCH | IMAGE_SEARCH"
+              },
+              title: {
+                type: Type.STRING,
+                description: "Título EXACTO que se usará en {{recurso:Título}}"
+              },
+              moment: {
+                type: Type.STRING,
+                description: "Momento: Inicio | Desarrollo | Cierre | TareaCasa"
+              },
+
+              // For AI_IMAGE
+              generationPrompt: {
+                type: Type.STRING,
+                description: "Para AI_IMAGE: prompt en inglés para Gemini Image. Para DIAGRAM: descripción breve de qué diagramar (NO código Mermaid)."
+              },
+
+              // For DIAGRAM
+              diagramType: {
+                type: Type.STRING,
+                description: "Solo para DIAGRAM. Tipo: mapa-conceptual | mapa-mental | espina-pescado | cuadro-sinoptico | linea-tiempo | diagrama-flujo | diagrama-venn | cruz-esquematica | cuadro-comparativo | arbol-ideas | otro"
+              },
+
+              // For VIDEO_SEARCH and IMAGE_SEARCH
+              searchQuery: {
+                type: Type.STRING,
+                description: "Para VIDEO_SEARCH e IMAGE_SEARCH: consulta de búsqueda en español"
+              }
             },
-            images: {
-                type: Type.ARRAY,
-                description: "Lista de 2 a 3 imágenes clave para generar.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        id: { type: Type.STRING },
-                        title: { type: Type.STRING },
-                        prompt: { type: Type.STRING, description: "Prompt descriptivo en inglés optimizado para generar la imagen (fotorealista o ilustración según nivel)." },
-                        moment: { type: Type.STRING, description: "Inicio, Desarrollo o Cierre" }
-                    },
-                    required: ["id", "title", "prompt", "moment"]
-                }
-            },
-            diagrams: {
-                type: Type.ARRAY,
-                description: "Lista de diagramas adicionales generados por solicitud en materiales.",
-                items: {
-                    type: Type.OBJECT,
-                    properties: {
-                        id: { type: Type.STRING },
-                        title: { type: Type.STRING },
-                        type: { type: Type.STRING },
-                        mermaidCode: { type: Type.STRING },
-                        description: { type: Type.STRING },
-                        textFallback: { type: Type.STRING }
-                    },
-                    required: ["id", "title", "type", "mermaidCode"]
-                }
-            }
-        },
-        required: ["organizer", "images"]
+            required: ["id", "type", "title", "moment"]
+          }
+        }
+      },
+      required: ["resources"]
     }
   },
   required: ["sessionTitle", "area", "cycleGrade", "teacherName", "inicio", "desarrollo", "cierre", "tareaCasa", "fichas", "resources"],

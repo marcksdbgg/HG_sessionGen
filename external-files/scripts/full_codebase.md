@@ -13,6 +13,7 @@ HG_sessionGen/
 ├── constants.ts
 ├── core
 │   ├── ExportManager.ts
+│   ├── ExternalResourceResolver.ts
 │   ├── FormatPackManager.ts
 │   ├── PromptComposer.ts
 │   ├── RetryPolicy.ts
@@ -41,7 +42,8 @@ HG_sessionGen/
 ├── tsconfig.json
 ├── types.ts
 ├── utils
-│   └── markdownParser.tsx
+│   ├── markdownParser.tsx
+│   └── normalization.ts
 └── vite.config.ts
 ```
 
@@ -144,10 +146,10 @@ dist-ssr
 
 ## File: `App.tsx`
 ```tsx
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import Home from './components/Home';
 import SessionResult from './components/SessionResult';
-import { SessionData } from './types';
+import { SessionData, ResourceUpdateCallback, GeneratedImage, Organizer } from './types';
 
 type ViewState = 'home' | 'result';
 
@@ -155,24 +157,93 @@ function App() {
   const [view, setView] = useState<ViewState>('home');
   const [currentSession, setCurrentSession] = useState<SessionData | null>(null);
 
+  // Ref to store the session for callback updates (avoids stale closure)
+  const sessionRef = useRef<SessionData | null>(null);
+
+  // Handle progressive resource updates from background generation
+  const handleResourceUpdate: ResourceUpdateCallback = useCallback((type, id, resource) => {
+    setCurrentSession(prev => {
+      // If state is not yet hydrated but ref exists, use ref as base
+      // This handles cases where callback fires before React finishes setting initial state
+      const baseSession = prev || sessionRef.current;
+      
+      if (!baseSession) return prev;
+
+      let nextSession = { ...baseSession };
+
+      if (type === 'image') {
+        const img = resource as GeneratedImage;
+        const updatedImages = nextSession.resources.images.map(existing =>
+          existing.id === id ? img : existing
+        );
+        nextSession.resources = {
+            ...nextSession.resources,
+            images: updatedImages
+        };
+      }
+
+      else if (type === 'diagram') {
+        const diag = resource as Organizer;
+        const existingDiagrams = nextSession.resources.diagrams || [];
+        const diagExists = existingDiagrams.some(d => d.id === id);
+        const updatedDiagrams = diagExists
+          ? existingDiagrams.map(existing => existing.id === id ? diag : existing)
+          : [...existingDiagrams, diag];
+        
+        nextSession.resources = {
+            ...nextSession.resources,
+            diagrams: updatedDiagrams
+        };
+      }
+
+      else if (type === 'section_update') {
+        const update = resource as { section: keyof SessionData, field: string, value: string[] };
+        nextSession = {
+          ...nextSession,
+          [update.section]: {
+            ...nextSession[update.section] as any,
+            [update.field]: update.value
+          }
+        };
+      }
+
+      // Update Ref to keep it in sync for subsequent fast updates
+      sessionRef.current = nextSession;
+      return nextSession;
+    });
+  }, []);
+
   const handleSessionGenerated = (data: SessionData) => {
+    sessionRef.current = data;
     setCurrentSession(data);
     setView('result');
     window.scrollTo(0, 0);
+
+    // The onResourceUpdate callback from Home is already wired to SessionGenerator
+    // We just need to ensure our handleResourceUpdate is called
+    // This is handled by the ref pattern in Home.tsx
   };
 
   const handleBack = () => {
     setView('home');
+    setCurrentSession(null);
+    sessionRef.current = null;
   };
 
   return (
     <>
-      {view === 'home' && <Home onSessionGenerated={handleSessionGenerated} />}
+      {view === 'home' && (
+        <Home
+          onSessionGenerated={handleSessionGenerated}
+          onResourceUpdate={handleResourceUpdate}
+        />
+      )}
       {view === 'result' && currentSession && (
-        <SessionResult 
-          data={currentSession} 
-          formatId="minedu" 
-          onBack={handleBack} 
+        <SessionResult
+          data={currentSession}
+          formatId="minedu"
+          onBack={handleBack}
+          onResourceUpdate={handleResourceUpdate}
         />
       )}
     </>
@@ -531,231 +602,237 @@ export default DiagramRenderer;
 ```tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { NIVELES, GRADOS_INICIAL, GRADOS_PRIMARIA, GRADOS_SECUNDARIA, AREAS } from '../constants';
-import { SessionRequest, SessionRecord, SessionData } from '../types';
+import { SessionRequest, SessionRecord, SessionData, ResourceUpdateCallback, GeneratedImage, Organizer } from '../types';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { Mic, Loader2, Sparkles, History, ArrowRight } from 'lucide-react';
 
 interface HomeProps {
-  onSessionGenerated: (data: SessionData) => void;
+    onSessionGenerated: (data: SessionData) => void;
+    onResourceUpdate: ResourceUpdateCallback;
 }
 
-const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
-  const [nivel, setNivel] = useState(NIVELES[1]);
-  const [grado, setGrado] = useState(GRADOS_PRIMARIA[0]);
-  const [area, setArea] = useState(AREAS[0]);
-  const [prompt, setPrompt] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [loadingText, setLoadingText] = useState('Generando sesión...');
-  const [history, setHistory] = useState<SessionRecord[]>([]);
-  const recognitionRef = useRef<any>(null);
+const Home: React.FC<HomeProps> = ({ onSessionGenerated, onResourceUpdate }) => {
+    const [nivel, setNivel] = useState(NIVELES[1]);
+    const [grado, setGrado] = useState(GRADOS_PRIMARIA[0]);
+    const [area, setArea] = useState(AREAS[0]);
+    const [prompt, setPrompt] = useState('');
+    const [isListening, setIsListening] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [loadingText, setLoadingText] = useState('Generando sesión...');
+    const [history, setHistory] = useState<SessionRecord[]>([]);
+    const recognitionRef = useRef<any>(null);
 
-  // Update grades when level changes
-  useEffect(() => {
-    if (nivel === 'Inicial') setGrado(GRADOS_INICIAL[0]);
-    else if (nivel === 'Primaria') setGrado(GRADOS_PRIMARIA[0]);
-    else if (nivel === 'Secundaria') setGrado(GRADOS_SECUNDARIA[0]);
-  }, [nivel]);
+    // Update grades when level changes
+    useEffect(() => {
+        if (nivel === 'Inicial') setGrado(GRADOS_INICIAL[0]);
+        else if (nivel === 'Primaria') setGrado(GRADOS_PRIMARIA[0]);
+        else if (nivel === 'Secundaria') setGrado(GRADOS_SECUNDARIA[0]);
+    }, [nivel]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('aula_history');
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved).slice(0, 3));
-      } catch (e) {
-        console.error("History load error", e);
-      }
-    }
-
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.lang = 'es-PE';
-        recognitionRef.current.interimResults = false;
-
-        recognitionRef.current.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
-            setIsListening(false);
-        };
-        recognitionRef.current.onerror = () => setIsListening(false);
-        recognitionRef.current.onend = () => setIsListening(false);
-    }
-  }, []);
-
-  const toggleMic = () => {
-    if (!recognitionRef.current) {
-        alert("Tu navegador no soporta dictado por voz.");
-        return;
-    }
-    if (isListening) {
-        recognitionRef.current.stop();
-    } else {
-        setIsListening(true);
-        recognitionRef.current.start();
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!prompt.trim()) return;
-    setLoading(true);
-    setLoadingText("Interpretando pedido...");
-    
-    const messages = ["Estructurando momentos...", "Diseñando estrategias...", "Creando fichas...", "Aplicando formato...", "Generando recursos visuales..."];
-    let msgIdx = 0;
-    const interval = setInterval(() => {
-        setLoadingText(messages[msgIdx % messages.length]);
-        msgIdx++;
-    }, 2500);
-
-    try {
-        const request: SessionRequest = { nivel, grado, area, prompt };
-        const data = await SessionGenerator.generate(request);
-        
-        const newRecord: SessionRecord = {
-            id: Date.now().toString(),
-            timestamp: Date.now(),
-            data,
-            preview: data.sessionTitle
-        };
-        
-        // Update state with full data (including images)
-        const newHistory = [newRecord, ...history].slice(0, 3);
-        setHistory(newHistory);
-        
-        // Prepare lightweight history for localStorage (exclude base64 images)
-        const cleanHistory = newHistory.map(rec => ({
-            ...rec,
-            data: {
-                ...rec.data,
-                resources: {
-                    ...rec.data.resources,
-                    images: rec.data.resources?.images?.map(img => {
-                        // Create a copy without base64Data to save space
-                        const { base64Data, ...rest } = img;
-                        return rest;
-                    }) || []
-                }
+    useEffect(() => {
+        const saved = localStorage.getItem('aula_history');
+        if (saved) {
+            try {
+                setHistory(JSON.parse(saved).slice(0, 3));
+            } catch (e) {
+                console.error("History load error", e);
             }
-        }));
+        }
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            recognitionRef.current = new SpeechRecognition();
+            recognitionRef.current.continuous = false;
+            recognitionRef.current.lang = 'es-PE';
+            recognitionRef.current.interimResults = false;
+
+            recognitionRef.current.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                setPrompt(prev => prev + (prev ? ' ' : '') + transcript);
+                setIsListening(false);
+            };
+            recognitionRef.current.onerror = () => setIsListening(false);
+            recognitionRef.current.onend = () => setIsListening(false);
+        }
+    }, []);
+
+    const toggleMic = () => {
+        if (!recognitionRef.current) {
+            alert("Tu navegador no soporta dictado por voz.");
+            return;
+        }
+        if (isListening) {
+            recognitionRef.current.stop();
+        } else {
+            setIsListening(true);
+            recognitionRef.current.start();
+        }
+    };
+
+    const handleSubmit = async () => {
+        if (!prompt.trim()) return;
+        setLoading(true);
+        setLoadingText("Interpretando pedido...");
+
+        const messages = ["Estructurando momentos...", "Diseñando estrategias...", "Creando fichas...", "Preparando recursos..."];
+        let msgIdx = 0;
+        const interval = setInterval(() => {
+            setLoadingText(messages[msgIdx % messages.length]);
+            msgIdx++;
+        }, 2500);
 
         try {
-            localStorage.setItem('aula_history', JSON.stringify(cleanHistory));
-        } catch (e) {
-            console.warn("Could not save to localStorage (quota exceeded?)", e);
-            // Optionally try to save just the latest one if 3 fail, 
-            // but for now catching the error is enough to prevent crash.
+            const request: SessionRequest = { nivel, grado, area, prompt };
+
+            // Pass the parent's onResourceUpdate directly. 
+            // App.tsx manages the session state, so this connects the background 
+            // process directly to the App's state updater.
+            const data = await SessionGenerator.generateWithCallback(request, onResourceUpdate);
+
+            const newRecord: SessionRecord = {
+                id: Date.now().toString(),
+                timestamp: Date.now(),
+                data,
+                preview: data.sessionTitle
+            };
+
+            // Update state with data (images still loading in background)
+            const newHistory = [newRecord, ...history].slice(0, 3);
+            setHistory(newHistory);
+
+            // Prepare lightweight history for localStorage (exclude base64 images)
+            const cleanHistory = newHistory.map(rec => ({
+                ...rec,
+                data: {
+                    ...rec.data,
+                    resources: {
+                        ...rec.data.resources,
+                        images: rec.data.resources?.images?.map(img => {
+                            // Create a copy without base64Data to save space
+                            const { base64Data, ...rest } = img;
+                            return rest;
+                        }) || []
+                    }
+                }
+            }));
+
+            try {
+                localStorage.setItem('aula_history', JSON.stringify(cleanHistory));
+            } catch (e) {
+                console.warn("Could not save to localStorage (quota exceeded?)", e);
+            }
+
+            clearInterval(interval);
+
+            // Notify parent to switch view and show data
+            onSessionGenerated(data);
+
+        } catch (error) {
+            clearInterval(interval);
+            alert("Hubo un error. Por favor intenta de nuevo.");
+            console.error(error);
+        } finally {
+            setLoading(false);
         }
-        
-        clearInterval(interval);
-        onSessionGenerated(data);
-    } catch (error) {
-        clearInterval(interval);
-        alert("Hubo un error. Por favor intenta de nuevo.");
-        console.error(error);
-    } finally {
-        setLoading(false);
-    }
-  };
+    };
 
-  const loadFromHistory = (record: SessionRecord) => {
-      onSessionGenerated(record.data);
-  };
+    const loadFromHistory = (record: SessionRecord) => {
+        onSessionGenerated(record.data);
+    };
 
-  const getGrades = () => {
-    if (nivel === 'Inicial') return GRADOS_INICIAL;
-    if (nivel === 'Secundaria') return GRADOS_SECUNDARIA;
-    return GRADOS_PRIMARIA;
-  };
+    const getGrades = () => {
+        if (nivel === 'Inicial') return GRADOS_INICIAL;
+        if (nivel === 'Secundaria') return GRADOS_SECUNDARIA;
+        return GRADOS_PRIMARIA;
+    };
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
-      <div className="w-full max-w-lg space-y-8 mt-4 sm:mt-10">
-        
-        <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 mb-2">
-                <Sparkles className="w-6 h-6" />
-            </div>
-            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Aula Express</h1>
-            <p className="text-slate-500 font-medium">Generador modular de sesiones de aprendizaje.</p>
-        </div>
+    return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4">
+            <div className="w-full max-w-lg space-y-8 mt-4 sm:mt-10">
 
-        <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 overflow-hidden border border-slate-100">
-            <div className="p-6 space-y-5">
-                
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Nivel</label>
-                        <select value={nivel} onChange={(e) => setNivel(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
-                            {NIVELES.map(n => <option key={n} value={n}>{n}</option>)}
-                        </select>
+                <div className="text-center space-y-2">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 mb-2">
+                        <Sparkles className="w-6 h-6" />
                     </div>
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Grado</label>
-                        <select value={grado} onChange={(e) => setGrado(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
-                            {getGrades().map(g => <option key={g} value={g}>{g}</option>)}
-                        </select>
-                    </div>
+                    <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Aula Express</h1>
+                    <p className="text-slate-500 font-medium">Generador modular de sesiones de aprendizaje.</p>
                 </div>
 
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Área</label>
-                    <select value={area} onChange={(e) => setArea(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
-                        {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                </div>
+                <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/60 overflow-hidden border border-slate-100">
+                    <div className="p-6 space-y-5">
 
-                <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">¿Qué quieres enseñar hoy?</label>
-                    <div className="relative">
-                        <textarea
-                            value={prompt}
-                            onChange={(e) => setPrompt(e.target.value)}
-                            placeholder="Ej: La célula para secundaria, con maqueta comestible..."
-                            className="block w-full p-4 pb-12 text-sm text-slate-900 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-primary focus:border-transparent resize-none h-32 transition-all"
-                        />
-                        <button 
-                            onClick={toggleMic}
-                            className={`absolute right-3 bottom-3 p-2 rounded-full transition-all duration-200 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-slate-400 hover:text-primary shadow-sm border border-slate-200'}`}
-                        >
-                            <Mic className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-
-                <button
-                    onClick={handleSubmit}
-                    disabled={loading || !prompt.trim()}
-                    className={`w-full flex items-center justify-center py-4 px-6 rounded-xl text-white font-bold text-lg shadow-lg transition-all ${loading || !prompt.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-primary hover:bg-blue-700'}`}
-                >
-                    {loading ? <><Loader2 className="animate-spin -ml-1 mr-3 h-5 w-5" />{loadingText}</> : "Generar Sesión"}
-                </button>
-            </div>
-        </div>
-
-        {history.length > 0 && (
-            <div className="space-y-3">
-                <div className="flex items-center gap-2 text-slate-400 px-1">
-                    <History className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Recientes</span>
-                </div>
-                <div className="grid gap-3">
-                    {history.map(record => (
-                        <button key={record.id} onClick={() => loadFromHistory(record)} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group hover:border-primary/30 transition-all text-left w-full">
-                            <div>
-                                <h3 className="font-semibold text-slate-800 line-clamp-1">{record.preview}</h3>
-                                <p className="text-xs text-slate-400 mt-1">{record.data.area} • {record.data.cycleGrade}</p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Nivel</label>
+                                <select value={nivel} onChange={(e) => setNivel(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
+                                    {NIVELES.map(n => <option key={n} value={n}>{n}</option>)}
+                                </select>
                             </div>
-                            <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-primary transition-all" />
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Grado</label>
+                                <select value={grado} onChange={(e) => setGrado(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
+                                    {getGrades().map(g => <option key={g} value={g}>{g}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Área</label>
+                            <select value={area} onChange={(e) => setArea(e.target.value)} className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg p-2.5 font-medium">
+                                {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">¿Qué quieres enseñar hoy?</label>
+                            <div className="relative">
+                                <textarea
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    placeholder="Ej: La célula para secundaria, con maqueta comestible..."
+                                    className="block w-full p-4 pb-12 text-sm text-slate-900 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-primary focus:border-transparent resize-none h-32 transition-all"
+                                />
+                                <button
+                                    onClick={toggleMic}
+                                    className={`absolute right-3 bottom-3 p-2 rounded-full transition-all duration-200 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-slate-400 hover:text-primary shadow-sm border border-slate-200'}`}
+                                >
+                                    <Mic className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleSubmit}
+                            disabled={loading || !prompt.trim()}
+                            className={`w-full flex items-center justify-center py-4 px-6 rounded-xl text-white font-bold text-lg shadow-lg transition-all ${loading || !prompt.trim() ? 'bg-slate-300 cursor-not-allowed' : 'bg-primary hover:bg-blue-700'}`}
+                        >
+                            {loading ? <><Loader2 className="animate-spin -ml-1 mr-3 h-5 w-5" />{loadingText}</> : "Generar Sesión"}
                         </button>
-                    ))}
+                    </div>
                 </div>
+
+                {history.length > 0 && (
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-slate-400 px-1">
+                            <History className="w-4 h-4" />
+                            <span className="text-xs font-bold uppercase tracking-wider">Recientes</span>
+                        </div>
+                        <div className="grid gap-3">
+                            {history.map(record => (
+                                <button key={record.id} onClick={() => loadFromHistory(record)} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center justify-between group hover:border-primary/30 transition-all text-left w-full">
+                                    <div>
+                                        <h3 className="font-semibold text-slate-800 line-clamp-1">{record.preview}</h3>
+                                        <p className="text-xs text-slate-400 mt-1">{record.data.area} • {record.data.cycleGrade}</p>
+                                    </div>
+                                    <ArrowRight className="w-4 h-4 text-slate-300 group-hover:text-primary transition-all" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
-        )}
-      </div>
-    </div>
-  );
+        </div>
+    );
 };
 
 export default Home;
@@ -763,8 +840,8 @@ export default Home;
 
 ## File: `components\ResourcesPresenter.tsx`
 ```tsx
-import React, { useState, useEffect } from 'react';
-import { VirtualResources, GeneratedImage } from '../types';
+import React, { useState } from 'react';
+import { VirtualResources, GeneratedImage, Organizer } from '../types';
 import DiagramRenderer from './DiagramRenderer';
 import { Maximize2, X, Download, Image as ImageIcon, Layout, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -777,10 +854,14 @@ interface ResourcesPresenterProps {
 const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialImage }) => {
     const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(initialImage || null);
 
+    // Support for multiple diagrams
+    const allOrganizers = [resources.organizer, ...(resources.diagrams || [])];
+    const [activeOrganizerIdx, setActiveOrganizerIdx] = useState(0);
+
     // Filter valid images
     const validImages = resources.images.filter(img => img.base64Data);
 
-    const handleNext = (e: React.MouseEvent) => {
+    const handleNextImage = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!selectedImage) return;
         const idx = validImages.findIndex(img => img.id === selectedImage.id);
@@ -788,7 +869,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
         setSelectedImage(validImages[nextIdx]);
     };
 
-    const handlePrev = (e: React.MouseEvent) => {
+    const handlePrevImage = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!selectedImage) return;
         const idx = validImages.findIndex(img => img.id === selectedImage.id);
@@ -796,10 +877,18 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
         setSelectedImage(validImages[prevIdx]);
     };
 
+    const handleNextOrganizer = () => {
+        setActiveOrganizerIdx(prev => (prev + 1) % allOrganizers.length);
+    };
+
+    const handlePrevOrganizer = () => {
+        setActiveOrganizerIdx(prev => (prev - 1 + allOrganizers.length) % allOrganizers.length);
+    };
+
     const handleDownload = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!selectedImage || !selectedImage.base64Data) return;
-        
+
         const link = document.createElement('a');
         link.href = selectedImage.base64Data;
         link.download = `Recurso-${selectedImage.title.replace(/\s+/g, '-')}.png`;
@@ -811,7 +900,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
             {/* Header */}
             <div className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <button 
+                    <button
                         onClick={onClose}
                         className="p-2 bg-slate-900 text-slate-300 rounded-full hover:bg-slate-800 hover:text-white transition-colors border border-slate-800"
                     >
@@ -825,46 +914,75 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
             </div>
 
             <div className="max-w-7xl mx-auto p-6 space-y-12">
-                
+
                 {/* Visual Organizer Section */}
                 <section>
-                    <div className="flex items-center gap-3 mb-6 text-emerald-400 border-b border-slate-800 pb-2">
-                        <Layout className="w-6 h-6" />
-                        <h3 className="font-bold text-xl uppercase tracking-wider">Organizador Visual</h3>
+                    <div className="flex items-center justify-between mb-6 text-emerald-400 border-b border-slate-800 pb-2">
+                        <div className="flex items-center gap-3">
+                            <Layout className="w-6 h-6" />
+                            <h3 className="font-bold text-xl uppercase tracking-wider">Organizadores Visuales</h3>
+                        </div>
+                        {allOrganizers.length > 1 && (
+                            <div className="flex items-center gap-2 text-slate-400 text-sm">
+                                <button onClick={handlePrevOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronLeft className="w-5 h-5" /></button>
+                                <span>{activeOrganizerIdx + 1} / {allOrganizers.length}</span>
+                                <button onClick={handleNextOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronRight className="w-5 h-5" /></button>
+                            </div>
+                        )}
                     </div>
-                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-black/50 border-4 border-slate-800">
-                        <DiagramRenderer organizer={resources.organizer} className="min-h-[500px]" />
+                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-black/50 border-4 border-slate-800 relative">
+                        {/* Pass a key to force re-render when switching organizers */}
+                        <DiagramRenderer
+                            key={allOrganizers[activeOrganizerIdx].id}
+                            organizer={allOrganizers[activeOrganizerIdx]}
+                            className="min-h-[500px]"
+                        />
                     </div>
                 </section>
 
                 {/* Images Grid Section */}
-                {validImages.length > 0 && (
+                {resources.images.length > 0 && (
                     <section>
                         <div className="flex items-center gap-3 mb-6 text-sky-400 border-b border-slate-800 pb-2">
                             <ImageIcon className="w-6 h-6" />
                             <h3 className="font-bold text-xl uppercase tracking-wider">Galería de Imágenes</h3>
+                            {resources.images.some(img => img.isLoading) && (
+                                <span className="text-xs text-slate-500 ml-2">(generando...)</span>
+                            )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                            {validImages.map((img) => (
-                                <div 
-                                    key={img.id} 
-                                    className="group relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 hover:border-sky-500 transition-all duration-300 shadow-xl hover:shadow-sky-500/20 cursor-pointer flex flex-col"
-                                    onClick={() => setSelectedImage(img)}
+                            {resources.images.map((img) => (
+                                <div
+                                    key={img.id}
+                                    className={`group relative bg-slate-900 rounded-2xl overflow-hidden border transition-all duration-300 shadow-xl flex flex-col ${img.base64Data
+                                            ? 'border-slate-800 hover:border-sky-500 hover:shadow-sky-500/20 cursor-pointer'
+                                            : 'border-slate-700 opacity-70'
+                                        }`}
+                                    onClick={() => img.base64Data && setSelectedImage(img)}
                                 >
                                     <div className="aspect-[4/3] w-full overflow-hidden bg-black relative">
-                                        <img 
-                                            src={img.base64Data} 
-                                            alt={img.title} 
-                                            className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
-                                        />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
-                                        
+                                        {img.base64Data ? (
+                                            <>
+                                                <img
+                                                    src={img.base64Data}
+                                                    alt={img.title}
+                                                    className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
+                                                />
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
+                                            </>
+                                        ) : (
+                                            // Loading placeholder
+                                            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 animate-pulse">
+                                                <div className="w-12 h-12 border-4 border-slate-600 border-t-sky-500 rounded-full animate-spin mb-3"></div>
+                                                <span className="text-slate-500 text-sm">Generando imagen...</span>
+                                            </div>
+                                        )}
+
                                         <div className="absolute bottom-3 left-3">
-                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide ${
-                                                img.moment === 'Inicio' ? 'bg-blue-600/90 text-white' :
-                                                img.moment === 'Desarrollo' ? 'bg-indigo-600/90 text-white' :
-                                                'bg-amber-600/90 text-white'
-                                            }`}>
+                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide ${img.moment === 'Inicio' ? 'bg-blue-600/90 text-white' :
+                                                    img.moment === 'Desarrollo' ? 'bg-indigo-600/90 text-white' :
+                                                        'bg-amber-600/90 text-white'
+                                                }`}>
                                                 {img.moment}
                                             </span>
                                         </div>
@@ -872,8 +990,14 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                                     <div className="p-4 flex-1 flex flex-col justify-between bg-slate-900">
                                         <h4 className="font-bold text-slate-100 text-lg leading-tight mb-2 group-hover:text-sky-400 transition-colors">{img.title}</h4>
                                         <div className="flex items-center text-xs text-slate-500 gap-1">
-                                            <Maximize2 className="w-3 h-3" />
-                                            <span>Clic para ampliar</span>
+                                            {img.base64Data ? (
+                                                <>
+                                                    <Maximize2 className="w-3 h-3" />
+                                                    <span>Clic para ampliar</span>
+                                                </>
+                                            ) : (
+                                                <span className="italic">Preparando recurso...</span>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -886,19 +1010,19 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
             {/* Lightbox / Presentation Mode */}
             {selectedImage && (
                 <div className="fixed inset-0 z-[60] bg-black flex flex-col animate-in fade-in duration-200">
-                    
+
                     {/* Lightbox Header */}
                     <div className="absolute top-0 w-full z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
                         <h3 className="text-lg font-bold text-white/90 drop-shadow-md px-4">{selectedImage.title}</h3>
                         <div className="flex gap-3">
-                             <button 
+                            <button
                                 onClick={handleDownload}
                                 className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all backdrop-blur-sm"
                                 title="Descargar"
                             >
                                 <Download className="w-5 h-5" />
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setSelectedImage(null)}
                                 className="p-3 bg-white/10 text-white rounded-full hover:bg-red-500/80 transition-all backdrop-blur-sm"
                                 title="Cerrar"
@@ -907,21 +1031,21 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                             </button>
                         </div>
                     </div>
-                    
+
                     {/* Main Image Area */}
                     <div className="flex-1 flex items-center justify-center relative p-4 group">
-                        
+
                         {/* Navigation Buttons (visible on hover) */}
                         {validImages.length > 1 && (
                             <>
-                                <button 
-                                    onClick={handlePrev}
+                                <button
+                                    onClick={handlePrevImage}
                                     className="absolute left-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
                                 >
                                     <ChevronLeft className="w-8 h-8" />
                                 </button>
-                                <button 
-                                    onClick={handleNext}
+                                <button
+                                    onClick={handleNextImage}
                                     className="absolute right-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
                                 >
                                     <ChevronRight className="w-8 h-8" />
@@ -929,9 +1053,9 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                             </>
                         )}
 
-                        <img 
-                            src={selectedImage.base64Data} 
-                            alt={selectedImage.title} 
+                        <img
+                            src={selectedImage.base64Data}
+                            alt={selectedImage.title}
                             className="max-h-full max-w-full object-contain shadow-2xl drop-shadow-2xl"
                         />
                     </div>
@@ -951,23 +1075,26 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
 };
 
 export default ResourcesPresenter;
+
 ```
 
 ## File: `components\SessionResult.tsx`
 ```tsx
-import React, { useState } from 'react';
-import { SessionData, GeneratedImage } from '../types';
+import React, { useState, useEffect } from 'react';
+import { SessionData, GeneratedImage, ResourceUpdateCallback } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X } from 'lucide-react';
-import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
+import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X, Loader2 } from 'lucide-react';
+import { MarkdownText, groupItemsByHeaders, ExternalResourceRenderer, isExternalResource } from '../utils/markdownParser';
 import ResourcesPresenter from './ResourcesPresenter';
+import { fuzzyMatchImage } from '../utils/normalization';
 
 interface SessionResultProps {
     data: SessionData;
     formatId: string;
     onBack: () => void;
+    onResourceUpdate?: ResourceUpdateCallback;
 }
 
 // Tooltip component
@@ -984,10 +1111,10 @@ const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, 
 /**
  * Parses text to find {{imagen:Title}} tags and renders them as interactive buttons.
  */
-const SmartTextRenderer: React.FC<{ 
-    text: string; 
+const SmartTextRenderer: React.FC<{
+    text: string;
     images: GeneratedImage[] | undefined;
-    onOpenImage: (img: GeneratedImage) => void; 
+    onOpenImage: (img: GeneratedImage) => void;
 }> = ({ text, images, onOpenImage }) => {
     if (!text) return null;
 
@@ -1000,22 +1127,32 @@ const SmartTextRenderer: React.FC<{
                 const match = part.match(/\{\{imagen:(.*?)\}\}/);
                 if (match) {
                     const titleRef = match[1].trim();
-                    // Find image case-insensitive
-                    const img = images?.find(i => i.title.toLowerCase() === titleRef.toLowerCase());
-                    
-                    if (img && img.base64Data) {
+                    // Refactor: Use fuzzy matching utility
+                    const imgMatch = fuzzyMatchImage(titleRef, images);
+
+                    // Find actual image object if ID matches
+                    const img = imgMatch ? images?.find(i => i.id === imgMatch.id) : undefined;
+
+                    if (img && (img.base64Data || img.isLoading)) {
                         return (
-                            <button 
+                            <button
                                 key={index}
                                 onClick={() => onOpenImage(img)}
-                                className="inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-sm font-semibold hover:bg-indigo-100 hover:scale-105 transition-all align-middle cursor-pointer"
+                                className={`inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 border rounded-md text-sm font-semibold transition-all align-middle cursor-pointer ${
+                                    img.isLoading 
+                                    ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-wait'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:scale-105'
+                                }`}
                             >
-                                <ImageIcon className="w-3.5 h-3.5" />
-                                <span className="underline decoration-indigo-300 underline-offset-2">{img.title}</span>
+                                {img.isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <ImageIcon className="w-3.5 h-3.5" />}
+                                <span className="underline decoration-indigo-300 underline-offset-2">
+                                    {img.title}
+                                    {img.isLoading && '...'}
+                                </span>
                             </button>
                         );
                     } else {
-                        // Fallback if image not found or not ready
+                        // Fallback if image not found or failed
                         return <span key={index} className="text-slate-500 italic mx-1">[{titleRef}]</span>;
                     }
                 }
@@ -1044,14 +1181,25 @@ const EditableList: React.FC<{
     }
     return (
         <ul className="space-y-2">
-            {items.map((item, idx) => (
-                <li key={idx} className="flex items-start">
-                    <span className="mr-2 text-primary font-bold mt-1.5">•</span>
-                    <div className="flex-1">
-                        <SmartTextRenderer text={item} images={images} onOpenImage={onOpenImage} />
-                    </div>
-                </li>
-            ))}
+            {items.map((item, idx) => {
+                // Check if this is an external resource (VID_YT, IMG_URL, etc.)
+                if (isExternalResource(item)) {
+                    return (
+                        <li key={idx} className="list-none ml-0">
+                            <ExternalResourceRenderer item={item} />
+                        </li>
+                    );
+                }
+                // Regular item with potential {{imagen:}} tags
+                return (
+                    <li key={idx} className="flex items-start">
+                        <span className="mr-2 text-primary font-bold mt-1.5">•</span>
+                        <div className="flex-1">
+                            <SmartTextRenderer text={item} images={images} onOpenImage={onOpenImage} />
+                        </div>
+                    </li>
+                );
+            })}
         </ul>
     );
 };
@@ -1088,16 +1236,21 @@ const SectionHeader: React.FC<{
     </div>
 );
 
-const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack, onResourceUpdate }) => {
     const [data, setData] = useState(initialData);
     const [isEditing, setIsEditing] = useState(false);
     const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
     const [regenerating, setRegenerating] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    
+
     // Presentation State
     const [showPresentation, setShowPresentation] = useState(false);
     const [presentationInitialImage, setPresentationInitialImage] = useState<GeneratedImage | null>(null);
+
+    // Sync local state with parent data prop (for progressive resource updates)
+    useEffect(() => {
+        setData(initialData);
+    }, [initialData]);
 
     const handleCopyLatex = () => {
         const latex = ExportManager.generateLatex(data);
@@ -1116,12 +1269,24 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
 
     const handleRegenerate = async (section: keyof SessionData, instructions: string) => {
         if (!confirm("¿Deseas regenerar esta sección? Se perderán los cambios manuales.")) return;
-        setRegenerating(section);
+        setRegenerating(section as string);
         try {
             const newData = await SessionGenerator.regenerateSection(data, section, instructions);
             setData(prev => ({ ...prev, [section]: newData }));
         } catch (e) {
             alert("Error regenerando sección.");
+        } finally {
+            setRegenerating(null);
+        }
+    };
+
+    const handleRecoverImages = async () => {
+        setRegenerating('images');
+        try {
+            const newData = await SessionGenerator.recoverImages(data);
+            setData(newData);
+        } catch (e) {
+            alert("Error recuperando imágenes.");
         } finally {
             setRegenerating(null);
         }
@@ -1147,19 +1312,26 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     const showFichaAula = !isPrinting || printSection === 'ficha_aula';
     const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
 
+    // Check if images need recovery.
+    // Logic fix: It is ONLY "missing" if it has no data AND isn't currently loading.
+    const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt && !img.isLoading);
+    
+    // Check if we have any images (loading or loaded) to show presentation button
+    const hasResources = data.resources && data.resources.images && data.resources.images.length > 0;
+
     return (
         <>
             {showPresentation && data.resources && (
-                <ResourcesPresenter 
-                    resources={data.resources} 
+                <ResourcesPresenter
+                    resources={data.resources}
                     initialImage={presentationInitialImage}
                     onClose={() => {
                         setShowPresentation(false);
                         setPresentationInitialImage(null);
-                    }} 
+                    }}
                 />
             )}
-        
+
             <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''} ${showPresentation ? 'hidden' : ''}`}>
 
                 {/* Navbar */}
@@ -1168,8 +1340,21 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                         <ArrowLeft className="w-5 h-5 mr-1" /> Volver
                     </button>
                     <div className="flex items-center gap-3">
-                        {data.resources && (
-                            <Tooltip text="Ver todos los recursos">
+                        {hasMissingImages && (
+                            <Tooltip text="Las imágenes no se guardaron en el historial para ahorrar espacio. Click para regenerarlas.">
+                                <button
+                                    onClick={handleRecoverImages}
+                                    disabled={!!regenerating}
+                                    className="hidden sm:flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
+                                    <span>Restaurar Imágenes</span>
+                                </button>
+                            </Tooltip>
+                        )}
+
+                        {hasResources && !hasMissingImages && (
+                            <Tooltip text="Ver todos los recursos (Organizador + Imágenes)">
                                 <button
                                     onClick={() => setShowPresentation(true)}
                                     className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-900 text-white hover:bg-black transition-all shadow-md"
@@ -1221,11 +1406,25 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                 )}
 
                 {/* Mobile Presentation Button */}
-                {!showPresentation && data.resources && (
+                {!showPresentation && hasResources && !hasMissingImages && (
                     <div className="sm:hidden mx-4 mt-4">
                         <button onClick={() => setShowPresentation(true)} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 text-white shadow-lg">
                             <MonitorPlay className="w-5 h-5" />
                             <span>Ver Recursos Virtuales</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Mobile Recovery Button */}
+                {hasMissingImages && (
+                    <div className="sm:hidden mx-4 mt-4">
+                        <button
+                            onClick={handleRecoverImages}
+                            disabled={!!regenerating}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-100 text-amber-800 border border-amber-200"
+                        >
+                            <RefreshCw className={`w-5 h-5 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
+                            <span>Restaurar Imágenes</span>
                         </button>
                     </div>
                 )}
@@ -1251,22 +1450,22 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6 space-y-4">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivación</span>
-                                        <EditableList 
-                                            items={data.inicio.motivacion} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.inicio.motivacion}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'motivacion', val)} 
+                                            onChange={(val) => updateSection('inicio', 'motivacion', val)}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saberes Previos</span>
-                                        <EditableList 
-                                            items={data.inicio.saberesPrevios} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.inicio.saberesPrevios}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'saberesPrevios', val)} 
+                                            onChange={(val) => updateSection('inicio', 'saberesPrevios', val)}
                                         />
                                     </div>
                                 </div>
@@ -1285,12 +1484,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias</span>
-                                        <EditableList 
-                                            items={data.desarrollo.estrategias} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.desarrollo.estrategias}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('desarrollo', 'estrategias', val)} 
+                                            onChange={(val) => updateSection('desarrollo', 'estrategias', val)}
                                         />
                                     </div>
                                 </div>
@@ -1309,12 +1508,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias de Cierre</span>
-                                        <EditableList 
-                                            items={data.cierre.estrategias} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.cierre.estrategias}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('cierre', 'estrategias', val)} 
+                                            onChange={(val) => updateSection('cierre', 'estrategias', val)}
                                         />
                                     </div>
                                 </div>
@@ -1339,7 +1538,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                             </div>
                         </div>
                     </div>
-                    
+
                     <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
                         <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
                             <div className="border-b border-amber-100 pb-4 mb-6">
@@ -1402,24 +1601,38 @@ import { SessionData } from "../types";
 import { LATEX_TEMPLATE } from "../formats";
 
 export class ExportManager {
-  private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
-    if (!items || items.length === 0) return "";
-    return "\\begin{itemize}[leftmargin=*,nosep] " + items.map(i => `${latexPrefix}${i}`).join(" ") + " \\end{itemize}";
+  private static escapeLatex(text: string): string {
+    if (!text) return "";
+    return text
+      .replace(/\\/g, '\\textbackslash{}')
+      .replace(/\{/g, '\\{')
+      .replace(/\}/g, '\\}')
+      .replace(/\$/g, '\\$')
+      .replace(/&/g, '\\&')
+      .replace(/#/g, '\\#')
+      .replace(/_/g, '\\_')
+      .replace(/%/g, '\\%')
+      .replace(/\^/g, '\\textasciicircum{}')
+      .replace(/~/g, '\\textasciitilde{}');
   }
 
-  private static formatSimpleList(items: string[] | undefined): string {
+  private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
     if (!items || items.length === 0) return "";
-    return items.join(", ");
+    return "\\begin{itemize}[leftmargin=*,nosep] " + 
+      items.map(i => `${latexPrefix}${this.escapeLatex(i)}`).join(" ") + 
+      " \\end{itemize}";
   }
 
   static generateLatex(data: SessionData): string {
     let tex = LATEX_TEMPLATE;
 
+    const safe = (str: string) => this.escapeLatex(str);
+
     // Metadata
-    tex = tex.replace(/\[NOMBRE_SESION\]/g, data.sessionTitle);
-    tex = tex.replace(/\[AREA\]/g, data.area);
-    tex = tex.replace(/\[CICLO_GRADO\]/g, data.cycleGrade);
-    tex = tex.replace(/\[DOCENTE\]/g, data.teacherName);
+    tex = tex.replace(/\[NOMBRE_SESION\]/g, safe(data.sessionTitle));
+    tex = tex.replace(/\[AREA\]/g, safe(data.area));
+    tex = tex.replace(/\[CICLO_GRADO\]/g, safe(data.cycleGrade));
+    tex = tex.replace(/\[DOCENTE\]/g, safe(data.teacherName));
 
     // Inicio
     tex = tex.replace(/\[MOTIVACION\]/g, this.formatList(data.inicio.motivacion));
@@ -1441,6 +1654,58 @@ export class ExportManager {
     tex = tex.replace(/\[MATERIALES_CASA\]/g, this.formatList(data.tareaCasa.materiales));
 
     return tex;
+  }
+}
+
+```
+
+## File: `core\ExternalResourceResolver.ts`
+```ts
+import { ai } from "../services/geminiService";
+
+export class ExternalResourceResolver {
+  /**
+   * Resolves a search query to a real URL using Google Search Grounding.
+   */
+  static async resolveLink(query: string, type: 'video' | 'image'): Promise<{title: string, url: string} | null> {
+    try {
+      const prompt = type === 'video' 
+        ? `Busca en YouTube un video educativo sobre: "${query}". Devuelve solo el Título exacto y la URL del primer resultado válido. Prioriza contenido educativo.`
+        : `Busca una imagen educativa real de: "${query}". Devuelve solo el Título y la URL de la fuente de la imagen.`;
+
+      // Use a model capable of tools/grounding
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          tools: [{ googleSearch: {} }]
+        }
+      });
+
+      // 1. Try to extract from Grounding Metadata (Most reliable for 2.5)
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (chunks && chunks.length > 0) {
+        const webChunk = chunks.find(c => c.web?.uri);
+        if (webChunk?.web) {
+            return {
+                title: webChunk.web.title || query,
+                url: webChunk.web.uri
+            };
+        }
+      }
+      
+      // 2. Fallback: Parse text response if grounding chunks are tricky but text has link
+      const text = response.text || "";
+      const urlMatch = text.match(/https?:\/\/[^\s)]+/); // Basic URL extraction
+      if (urlMatch) {
+          return { title: query, url: urlMatch[0] };
+      }
+
+      return null;
+    } catch (e) {
+      console.warn(`External resource resolution failed for ${query}`, e);
+      return null;
+    }
   }
 }
 ```
@@ -1490,39 +1755,65 @@ import { SessionRequest } from "../types";
 export class PromptComposer {
   /**
    * Composes the full system prompt using the modular JSON configurations.
+   * Teacher instructions are placed FIRST with maximum emphasis.
    */
   static compose(request: SessionRequest): string {
     const { nivel, grado, area, prompt: userRequest } = request;
-    
+
+    // 0. PRIORITY: Teacher's specific instructions FIRST
+    let composed = `╔══════════════════════════════════════════════════════════════╗
+║  INSTRUCCIONES PRIORITARIAS DEL DOCENTE - CUMPLIR AL PIE DE LA LETRA  ║
+╚══════════════════════════════════════════════════════════════╝
+
+CONTEXTO DE LA SESIÓN:
+- Nivel: ${nivel}
+- Grado: ${grado}
+- Área: ${area}
+
+PEDIDO ESPECÍFICO DEL DOCENTE (MÁXIMA PRIORIDAD):
+"${userRequest}"
+
+REGLAS DE INTERPRETACIÓN DE RECURSOS EXTERNOS:
+Si el docente pide videos o imágenes reales y NO conoces la URL exacta, usa el formato de BÚSQUEDA:
+1. Para videos: "VID_YT: Título Sugerido :: SEARCH: consulta de búsqueda"
+2. Para fotos: "IMG_URL: Título Sugerido :: SEARCH: consulta de búsqueda"
+
+Ejemplo: "VID_YT: Canción de las Vocales :: SEARCH: cancion infantil vocales pegadiza"
+
+El sistema resolverá estos enlaces automáticamente. NO inventes URLs falsas.
+
+═══════════════════════════════════════════════════════════════
+
+`;
+
     // 1. Identity & Core Task (Maestro)
-    let composed = `${Prompts.maestro.role}\n${Prompts.maestro.task}\n`;
+    composed += `${Prompts.maestro.role}\n${Prompts.maestro.task}\n`;
     composed += `Estilo y Reglas: ${Prompts.maestro.style}\n`;
     composed += `Restricciones: ${JSON.stringify(Prompts.maestro.constraints)}\n`;
-    
+
     // 2. Level Specific Strategy
     let levelConfig: PromptBase = Prompts.primaria; // Default
     if (nivel === 'Inicial') levelConfig = Prompts.inicial;
     if (nivel === 'Secundaria') levelConfig = Prompts.secundaria;
-    
+
     composed += `\n--- ESTRATEGIA PARA NIVEL ${nivel.toUpperCase()} ---\n`;
     composed += `Enfoque: ${levelConfig.focus}\n`;
     composed += `Materiales Físicos: ${levelConfig.materials}\n`;
     composed += `Tono: ${levelConfig.tone}\n`;
     composed += `Reglas de Grado: ${JSON.stringify(levelConfig.gradeRules)}\n`;
-    
+
     // 3. Virtual Resources Logic
     composed += `\n--- RECURSOS VIRTUALES (IMPORTANTE) ---\n`;
     composed += `${Prompts.recursos.instruction}\n`;
-    
+
     // 4. Fichas Logic
     composed += `\n--- FICHAS DE APLICACIÓN ---\n`;
     composed += `${Prompts.fichas.instruction}\n`;
-    
-    // 5. User Context
-    composed += `\n--- PEDIDO ESPECÍFICO ---\n`;
-    composed += `Nivel: ${nivel} | Grado: ${grado} | Área: ${area}\n`;
-    composed += `TEMA/PROMPT: "${userRequest}"\n`;
-    
+
+    // 5. Reminder of teacher request at the end
+    composed += `\n--- RECORDATORIO FINAL ---\n`;
+    composed += `NO OLVIDES cumplir el pedido del docente: "${userRequest}"\n`;
+
     return composed;
   }
 
@@ -1536,7 +1827,10 @@ export class PromptComposer {
       Nuevas instrucciones para el cambio:
       "${instructions}"
       
-      Mantén el mismo formato JSON estricto para esta sección.
+      IMPORTANTE: Devuelve un JSON con la clave raíz exactamente igual a "${section}".
+      Ejemplo: { "${section}": { ...contenido... } }
+      
+      Mantén el formato de esa sección válido según el esquema original.
     `;
   }
 }
@@ -1581,123 +1875,311 @@ import { ai } from "../services/geminiService";
 import { SESSION_SCHEMA } from "../schemas/sessionSchema";
 import { PromptComposer } from "./PromptComposer";
 import { RetryPolicy } from "./RetryPolicy";
-import { SessionData, SessionRequest, GeneratedImage } from "../types";
-import { Type } from "@google/genai";
+import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateCallback } from "../types";
+import { Type, Schema } from "@google/genai";
+import { slugify } from "../utils/normalization";
+import { Prompts } from "../prompts";
+import { ExternalResourceResolver } from "./ExternalResourceResolver";
 
 export class SessionGenerator {
-  private static retryPolicy = new RetryPolicy();
-  private static textModelId = "gemini-2.5-flash";
-  private static imageModelId = "gemini-2.5-flash-image"; // For creating the visual resources
+    private static retryPolicy = new RetryPolicy();
+    private static textModelId = "gemini-2.5-flash";
+    private static imageModelId = "gemini-2.5-flash-image";
 
-  static async generate(request: SessionRequest): Promise<SessionData> {
-    const fullPrompt = PromptComposer.compose(request);
+    /**
+     * LEGACY: Blocking generation.
+     */
+    static async generate(request: SessionRequest): Promise<SessionData> {
+        return this.generateWithCallback(request);
+    }
 
-    // 1. Generate the Text Structure (JSON)
-    const sessionData = await this.retryPolicy.execute(async () => {
-      const response = await ai.models.generateContent({
-        model: this.textModelId,
-        contents: [
-            { role: 'user', parts: [{ text: fullPrompt }] }
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: SESSION_SCHEMA,
-        },
-      });
+    /**
+     * NON-BLOCKING: Returns session immediately after text generation.
+     * Resources (images, diagrams, external links) are generated in background.
+     */
+    static async generateWithCallback(
+        request: SessionRequest,
+        onResourceUpdate?: ResourceUpdateCallback
+    ): Promise<SessionData> {
+        const fullPrompt = PromptComposer.compose(request);
 
-      const jsonText = response.text;
-      if (!jsonText) throw new Error("Empty response from Gemini");
-      return JSON.parse(jsonText) as SessionData;
-    });
+        // FLOW A: Text Pipeline - Generate Structure (~10-15s)
+        let sessionData = await this.generateTextSession(fullPrompt);
 
-    // 2. Post-process: Generate Images for the Resources
-    // We do this asynchronously to not block the UI if possible, but for simplicity here we await
-    // or we returns the session data and let the images load lazily?
-    // User requested: "ni bien se obtengas estas respuestas se muestren los recursos"
-    // We will initiate image generation here and fill the base64 data.
-    
-    if (sessionData.resources && sessionData.resources.images) {
-        const imagePromises = sessionData.resources.images.map(async (img) => {
+        // Defense in Depth: Validate IDs and Structure  
+        sessionData = this.validateSessionData(sessionData);
+
+        // Mark all images as loading initially
+        if (sessionData.resources?.images) {
+            sessionData.resources.images = sessionData.resources.images.map(img => ({
+                ...img,
+                isLoading: true
+            }));
+        }
+
+        // FLOW B: Resources Pipeline - Background (fire-and-forget)
+        this.enrichResourcesBackground(sessionData, request, onResourceUpdate);
+
+        return sessionData; // Return immediately
+    }
+
+    static async recoverImages(data: SessionData): Promise<SessionData> {
+        if (!data.resources || !data.resources.images) return data;
+
+        const newData = { ...data };
+        newData.resources = { ...data.resources };
+        newData.resources.images = [...data.resources.images];
+
+        const imagePromises = newData.resources.images.map(async (img) => {
+            if (img.base64Data) return img;
             try {
                 const base64 = await this.generateImage(img.prompt);
                 return { ...img, base64Data: base64, isLoading: false };
             } catch (e) {
-                console.error(`Failed to generate image for: ${img.title}`, e);
-                return { ...img, isLoading: false }; // Return without image on fail
+                console.error(`Failed to recover image: ${img.title}`, e);
+                return img;
             }
         });
 
-        // Wait for all images (or you could return partial and update state in UI, 
-        // but waiting ensures complete session delivery for this MVP)
-        const updatedImages = await Promise.all(imagePromises);
-        sessionData.resources.images = updatedImages;
+        newData.resources.images = await Promise.all(imagePromises);
+        return newData;
     }
 
-    return sessionData;
-  }
+    static async regenerateSection(
+        currentData: SessionData,
+        sectionKey: keyof SessionData,
+        instructions: string
+    ): Promise<any> {
+        let partialSchema: any;
 
-  private static async generateImage(prompt: string): Promise<string> {
-     const response = await ai.models.generateContent({
-        model: this.imageModelId,
-        contents: { parts: [{ text: prompt }] },
-        config: {
-            // No responseMimeType for image model usually in this SDK version unless specified
+        if (SESSION_SCHEMA.properties && SESSION_SCHEMA.properties[sectionKey]) {
+            partialSchema = {
+                type: Type.OBJECT,
+                properties: {
+                    [sectionKey]: SESSION_SCHEMA.properties[sectionKey]
+                },
+                required: [sectionKey]
+            };
+        } else {
+            throw new Error("Invalid section key for regeneration");
         }
-     });
 
-     // Iterate parts to find the image
-     if (response.candidates?.[0]?.content?.parts) {
-         for (const part of response.candidates[0].content.parts) {
-             if (part.inlineData && part.inlineData.data) {
-                 return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-             }
-         }
-     }
-     
-     throw new Error("No image data found in response");
-  }
+        const prompt = PromptComposer.composeRegeneration(
+            String(sectionKey),
+            currentData[sectionKey],
+            instructions
+        );
 
-  static async regenerateSection(
-    currentData: SessionData, 
-    sectionKey: keyof SessionData, 
-    instructions: string
-  ): Promise<any> {
-    let partialSchema: any;
-    
-    if (SESSION_SCHEMA.properties && SESSION_SCHEMA.properties[sectionKey]) {
-        partialSchema = {
-            type: Type.OBJECT,
-            properties: {
-                [sectionKey]: SESSION_SCHEMA.properties[sectionKey]
-            },
-            required: [sectionKey]
-        };
-    } else {
-        throw new Error("Invalid section key for regeneration");
+        return this.retryPolicy.execute(async () => {
+            const response = await ai.models.generateContent({
+                model: this.textModelId,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: partialSchema
+                }
+            });
+
+            const jsonText = response.text;
+            if (!jsonText) throw new Error("Empty regeneration response");
+            const parsed = JSON.parse(jsonText);
+            return parsed[sectionKey];
+        });
     }
 
-    const prompt = PromptComposer.composeRegeneration(
-        String(sectionKey), 
-        currentData[sectionKey], 
-        instructions
-    );
+    // --- Private Helpers ---
 
-    return this.retryPolicy.execute(async () => {
-        const response = await ai.models.generateContent({
-            model: this.textModelId,
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: partialSchema
+    private static async generateTextSession(prompt: string): Promise<SessionData> {
+        return this.retryPolicy.execute(async () => {
+            const response = await ai.models.generateContent({
+                model: this.textModelId,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: SESSION_SCHEMA,
+                },
+            });
+
+            const jsonText = response.text;
+            if (!jsonText) throw new Error("Empty response from Gemini");
+            return JSON.parse(jsonText) as SessionData;
+        });
+    }
+
+    private static validateSessionData(data: SessionData): SessionData {
+        if (data.resources?.organizer && !data.resources.organizer.id) {
+            data.resources.organizer.id = `org-${slugify(data.sessionTitle).slice(0, 10)}`;
+        }
+        if (data.resources?.images) {
+            data.resources.images.forEach((img, idx) => {
+                if (!img.id) {
+                    img.id = `img-${idx}-${slugify(img.title).slice(0, 15)}`;
+                }
+            });
+        }
+        if (!data.resources.diagrams) {
+            data.resources.diagrams = [];
+        }
+        return data;
+    }
+
+    /**
+     * Background resource enrichment loop.
+     */
+    private static async enrichResourcesBackground(
+        data: SessionData,
+        request: SessionRequest,
+        onUpdate?: ResourceUpdateCallback
+    ): Promise<void> {
+        const resources = data.resources;
+
+        // 1. Generate images (Parallel)
+        const imagePromises = (resources.images || []).map(async (img) => {
+            if (img.base64Data) {
+                onUpdate?.('image', img.id, { ...img, isLoading: false });
+                return;
+            }
+            try {
+                const base64 = await this.generateImage(img.prompt);
+                onUpdate?.('image', img.id, { ...img, base64Data: base64, isLoading: false });
+            } catch (e) {
+                console.error(`Failed to generate image: ${img.title}`, e);
+                onUpdate?.('image', img.id, { ...img, isLoading: false, error: 'Failed' });
             }
         });
-        
-        const jsonText = response.text;
-        if (!jsonText) throw new Error("Empty regeneration response");
-        const parsed = JSON.parse(jsonText);
-        return parsed[sectionKey];
-    });
-  }
+
+        // 2. Generate extra diagrams (Parallel)
+        const diagramPromises = this.scanAndGenerateDiagramsWithCallback(data, request, onUpdate);
+
+        // 3. Resolve External Links (VID_YT / IMG_URL with SEARCH:)
+        // We assume scanAndResolveLinksWithCallback handles the parallel logic internally
+        const linkPromises = this.scanAndResolveLinksWithCallback(data, onUpdate);
+
+        // Wait for all to finish (fire-and-forget from caller perspective)
+        await Promise.all([
+            Promise.allSettled(imagePromises),
+            diagramPromises,
+            linkPromises
+        ]);
+    }
+
+    private static async scanAndResolveLinksWithCallback(
+        data: SessionData,
+        onUpdate?: ResourceUpdateCallback
+    ): Promise<void> {
+        // Sections to scan
+        const sections: { key: keyof SessionData, subKey: string, items: string[] }[] = [
+            { key: 'inicio', subKey: 'materiales', items: data.inicio.materiales },
+            { key: 'desarrollo', subKey: 'materiales', items: data.desarrollo.materiales },
+            { key: 'cierre', subKey: 'materiales', items: data.cierre.materiales },
+            { key: 'tareaCasa', subKey: 'materiales', items: data.tareaCasa.materiales }
+        ];
+
+        // Flatten all items that need resolution
+        // Look for: "VID_YT: ... :: SEARCH: ..." or "IMG_URL: ... :: SEARCH: ..."
+        const resolutionTasks: Array<() => Promise<void>> = [];
+
+        sections.forEach(section => {
+            section.items.forEach((item, index) => {
+                const searchMatch = item.match(/^(VID_YT|IMG_URL):\s*(.+?)\s*::\s*SEARCH:\s*(.+)$/i);
+
+                if (searchMatch) {
+                    const typeTag = searchMatch[1].toUpperCase() as 'VID_YT' | 'IMG_URL';
+                    const title = searchMatch[2];
+                    const query = searchMatch[3];
+                    const resourceType = typeTag === 'VID_YT' ? 'video' : 'image';
+
+                    resolutionTasks.push(async () => {
+                        const resolved = await ExternalResourceResolver.resolveLink(query, resourceType);
+                        if (resolved) {
+                            // Replace item in the array
+                            const newItem = `${typeTag}: ${resolved.title} :: ${resolved.url}`;
+                            section.items[index] = newItem; // Update in place for local data reference
+
+                            // Notify UI to update specific section
+                            onUpdate?.('section_update', `${section.key}-${section.subKey}`, {
+                                section: section.key,
+                                field: section.subKey,
+                                value: [...section.items] // Send copy of updated array
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        await Promise.allSettled(resolutionTasks.map(task => task()));
+    }
+
+    private static async scanAndGenerateDiagramsWithCallback(
+        data: SessionData,
+        request: SessionRequest,
+        onUpdate?: ResourceUpdateCallback
+    ): Promise<void> {
+        const diagPrompts: { title: string; instruction: string }[] = [];
+
+        const scanList = (items: string[]) => {
+            items.forEach(item => {
+                const match = item.match(/DIAG_PROMPT:\s*(.+?)\s*::\s*(.+)/);
+                if (match) {
+                    diagPrompts.push({ title: match[1], instruction: match[2] });
+                }
+            });
+        };
+
+        if (data.inicio?.materiales) scanList(data.inicio.materiales);
+        if (data.desarrollo?.materiales) scanList(data.desarrollo.materiales);
+        if (data.cierre?.materiales) scanList(data.cierre.materiales);
+        if (data.tareaCasa?.materiales) scanList(data.tareaCasa.materiales);
+
+        if (diagPrompts.length === 0) return;
+
+        await Promise.allSettled(diagPrompts.map(async (dp, idx) => {
+            try {
+                const promptText = `${Prompts.diagramas.instruction}\n\n` +
+                    `CONTEXTO:\nNivel: ${request.nivel}, Grado: ${request.grado}, Area: ${request.area}\n` +
+                    `DIAGRAM REQUEST: Title: "${dp.title}", Instruction: "${dp.instruction}"\n\n` +
+                    `${Prompts.diagramas.outputContract}\n${Prompts.diagramas.guidelines?.join('\n') || ''}`;
+
+                const response = await ai.models.generateContent({
+                    model: this.textModelId,
+                    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+                    config: { responseMimeType: "application/json" }
+                });
+
+                const json = JSON.parse(response.text || "{}");
+                if (json.organizer) {
+                    const org: Organizer = json.organizer;
+                    if (!org.id) org.id = `extra-diag-${idx}-${slugify(dp.title).slice(0, 10)}`;
+                    onUpdate?.('diagram', org.id, org);
+                }
+            } catch (e) {
+                console.error(`Failed to generate extra diagram: ${dp.title}`, e);
+            }
+        }));
+    }
+
+    private static async generateImage(prompt: string): Promise<string> {
+        const response = await ai.models.generateContent({
+            model: this.imageModelId,
+            contents: { parts: [{ text: prompt }] },
+        });
+
+        if (response.candidates?.[0]?.content?.parts) {
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+                }
+            }
+        }
+        throw new Error("No image data found in response");
+    }
+
+    // Fallback for logic still using the old method if any
+    private static async enrichResources(data: SessionData, request: SessionRequest): Promise<SessionData> {
+        await this.enrichResourcesBackground(data, request);
+        return data;
+    }
 }
 ```
 
@@ -2129,18 +2611,17 @@ export default {
     "Todo título de imagen en resources.images debe coincidir EXACTAMENTE con el título usado en {{imagen:Título Exacto}}.",
     "No uses sinónimos ni variaciones de artículos en esos títulos.",
 
-    // URLs
-    "No inventes URLs.",
-    "Solo incluye un enlace si estás 100% seguro de que existe y es correcto.",
-    "Si no estás seguro, reemplaza el link por una descripción + un prompt de IA o una sugerencia de búsqueda sin URL.",
+    // URLs y Recursos Externos
+    "Si el docente pide un recurso externo (video/foto) y NO tienes la URL exacta:",
+    "Usa el formato: 'VID_YT: Título :: SEARCH: consulta' o 'IMG_URL: Título :: SEARCH: consulta'.",
+    "NO inventes URLs falsas. Delega la búsqueda al sistema usando 'SEARCH:'.",
 
     // Materiales por sección: convención para el segundo flujo
     "En inicio.materiales, desarrollo.materiales, cierre.materiales y tareaCasa.materiales usa estos prefijos cuando aplique:",
     "1) 'IMG_GEN: <Título Exacto>' para referenciar una imagen a generar (debe existir en resources.images).",
-    "2) 'IMG_URL: <Título> :: <URL>' solo si la URL es real y segura.",
-    "3) 'VID_YT: <Título> :: <URL>' solo si la URL es real y segura.",
-    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional por sección (para el segundo pipeline).",
-    "Estos ítems deben ser útiles también si se imprimen en PDF.",
+    "2) 'VID_YT: <Título> :: SEARCH: <consulta>' para videos de YouTube.",
+    "3) 'IMG_URL: <Título> :: SEARCH: <consulta>' para imágenes reales externas.",
+    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional.",
 
     // Mermaid base
     "El organizador visual en resources.organizer debe resumir el tema central de toda la sesión.",
@@ -2151,7 +2632,6 @@ export default {
     "Mantén coherencia entre propósito, estrategias, materiales y fichas."
   ]
 };
-
 ```
 
 ## File: `prompts\prompt_primaria.ts`
@@ -2188,38 +2668,49 @@ export default {
 export default {
     instruction: [
         "RECURSOS VIRTUALES PARA DOS FLUJOS:",
-        "Este prompt se usa en el flujo A (texto). El flujo B generará imágenes/diagramas.",
+        "Este prompt se usa en el flujo A (texto). El flujo B generará imágenes/diagramas y resolverá enlaces externos.",
         "",
-        "1) IMÁGENES (resources.images):",
-        "- Genera entre 2 y 4 imágenes clave si el tema lo amerita.",
+        "1) IMÁGENES GENERADAS POR IA (resources.images):",
+        "- Genera entre 2 y 4 imágenes ilustradas si el tema lo amerita.",
         "- Cada imagen debe incluir: id, title, prompt, moment.",
         "- El 'moment' debe ser exactamente uno de: 'Inicio', 'Desarrollo', 'Cierre'.",
-        "- El 'prompt' debe ser detallado y apto para un modelo de imagen.",
-        "- Incluye explícitamente la regla: 'Text inside the image must be in Spanish'.",
+        "- El 'prompt' debe ser detallado y apto para un modelo de imagen IA.",
+        "- Incluye explícitamente: 'Text inside the image must be in Spanish'.",
         "",
         "2) SINCRONIZACIÓN CON TEXTO:",
-        "- Cuando una estrategia mencione usar una imagen generada, inserta el marcador {{imagen:Título Exacto}} en esa misma oración.",
-        "- El título dentro del marcador debe coincidir EXACTAMENTE con resources.images[].title.",
+        "- Cuando una estrategia mencione usar una imagen generada, inserta {{imagen:Título Exacto}}.",
+        "- El título debe coincidir EXACTAMENTE con resources.images[].title.",
         "",
         "3) ORGANIZADOR MERMAID (resources.organizer):",
         "- Incluye id, title, type y mermaidCode.",
-        "- Usa 'graph TD' o 'mindmap'.",
-        "- 'graph TD' o 'mindmap' debe estar en la PRIMERA línea.",
+        "- Usa 'graph TD' o 'mindmap' en la PRIMERA línea.",
         "- Los nodos deben usar comillas dobles en los textos.",
-        "- Incluye textFallback útil y una description breve.",
         "",
-        "4) MATERIALES POR SECCIÓN (muy importante para el flujo B):",
-        "En cada bloque de materiales (inicio/desarrollo/cierre/tareaCasa) agrega ítems con prefijos:",
-        "• IMG_GEN: <Título Exacto>  (debe existir como imagen en resources.images)",
-        "• DIAG_PROMPT: <Título> :: <instrucción breve para un diagrama por sección>",
-        "• IMG_URL: <Título> :: <URL>  (solo si la URL es real y segura)",
-        "• VID_YT: <Título> :: <URL>   (solo si la URL es real y segura)",
+        "════════════════════════════════════════════════════════════",
+        "4) MATERIALES POR SECCIÓN - ¡MUY IMPORTANTE!",
+        "════════════════════════════════════════════════════════════",
+        "En inicio.materiales, desarrollo.materiales, cierre.materiales, tareaCasa.materiales",
+        "DEBES incluir ítems con estos PREFIJOS EXACTOS cuando corresponda:",
         "",
-        "5) NO INVENTES LINKS:",
-        "- Si no estás seguro del enlace, NO lo incluyas.",
-        "- En su lugar, escribe una descripción del recurso y/o un IMG_GEN o DIAG_PROMPT."
+        "👉 IMG_GEN: <Título Exacto>",
+        "   Referencia a una imagen IA que debe existir en resources.images.",
+        "",
+        "👉 VID_YT: <Título descriptivo> :: SEARCH: <consulta de búsqueda>",
+        "   Para videos de YouTube. El sistema buscará el video real.",
+        "   Ejemplo: VID_YT: Canción de las Vocales :: SEARCH: cancion infantil vocales español",
+        "",
+        "👉 IMG_URL: <Título descriptivo> :: SEARCH: <consulta de búsqueda>",
+        "   Para FOTOS REALES (no ilustraciones). El sistema buscará la imagen.",
+        "   Ejemplo: IMG_URL: Foto de Elefante Real :: SEARCH: elefante africano foto real",
+        "",
+        "👉 DIAG_PROMPT: <Título> :: <instrucción breve>",
+        "   Para solicitar un diagrama adicional por sección.",
+        "",
+        "⚠️ NUNCA inventes URLs. Usa siempre el formato SEARCH: para que el sistema busque.",
+        "⚠️ Si el docente pide videos o fotos reales, DEBES usar VID_YT o IMG_URL con SEARCH."
     ].join("\n")
 };
+
 
 ```
 
@@ -2336,7 +2827,7 @@ export const SESSION_SCHEMA: Schema = {
                     description: { type: Type.STRING, description: "Breve explicación del gráfico." },
                     textFallback: { type: Type.STRING, description: "Versión texto plano del gráfico por si falla el render." }
                 },
-                required: ["title", "type", "mermaidCode", "description"]
+                required: ["id", "title", "type", "mermaidCode", "description"]
             },
             images: {
                 type: Type.ARRAY,
@@ -2349,7 +2840,23 @@ export const SESSION_SCHEMA: Schema = {
                         prompt: { type: Type.STRING, description: "Prompt descriptivo en inglés optimizado para generar la imagen (fotorealista o ilustración según nivel)." },
                         moment: { type: Type.STRING, description: "Inicio, Desarrollo o Cierre" }
                     },
-                    required: ["title", "prompt", "moment"]
+                    required: ["id", "title", "prompt", "moment"]
+                }
+            },
+            diagrams: {
+                type: Type.ARRAY,
+                description: "Lista de diagramas adicionales generados por solicitud en materiales.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        title: { type: Type.STRING },
+                        type: { type: Type.STRING },
+                        mermaidCode: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        textFallback: { type: Type.STRING }
+                    },
+                    required: ["id", "title", "type", "mermaidCode"]
                 }
             }
         },
@@ -2358,6 +2865,7 @@ export const SESSION_SCHEMA: Schema = {
   },
   required: ["sessionTitle", "area", "cycleGrade", "teacherName", "inicio", "desarrollo", "cierre", "tareaCasa", "fichas", "resources"],
 };
+
 ```
 
 ## File: `services\exportService.ts`
@@ -2409,13 +2917,13 @@ export interface FichaContent {
   items: string[];
 }
 
-export type OrganizerType = 
-  | 'mapa-conceptual' 
-  | 'mapa-mental' 
-  | 'espina-pescado' 
-  | 'cuadro-sinoptico' 
-  | 'linea-tiempo' 
-  | 'diagrama-flujo' 
+export type OrganizerType =
+  | 'mapa-conceptual'
+  | 'mapa-mental'
+  | 'espina-pescado'
+  | 'cuadro-sinoptico'
+  | 'linea-tiempo'
+  | 'diagrama-flujo'
   | 'diagrama-venn'
   | 'cruz-esquematica'
   | 'cuadro-comparativo'
@@ -2439,12 +2947,21 @@ export interface GeneratedImage {
   moment: 'Inicio' | 'Desarrollo' | 'Cierre';
   base64Data?: string; // The actual generated image
   isLoading?: boolean;
+  error?: string; // Error message if generation failed
 }
 
 export interface VirtualResources {
   organizer: Organizer;
   images: GeneratedImage[];
+  diagrams?: Organizer[]; // Refactor: Support for additional diagrams
 }
+
+// Callback for progressive resource updates (non-blocking flow)
+export type ResourceUpdateCallback = (
+  type: 'image' | 'diagram' | 'section_update',
+  resourceId: string,
+  data: GeneratedImage | Organizer | { section: keyof SessionData, field: string, value: string[] }
+) => void;
 
 export interface SessionData {
   sessionTitle: string;
@@ -2609,6 +3126,206 @@ export function groupItemsByHeaders(items: string[]): GroupedItems[] {
     }
 
     return groups;
+}
+
+// ============================================================
+// EXTERNAL RESOURCE RENDERING (VID_YT, IMG_URL, IMG_GEN, DIAG_PROMPT)
+// ============================================================
+
+interface ParsedResource {
+    type: 'VID_YT' | 'IMG_URL' | 'IMG_GEN' | 'DIAG_PROMPT' | 'TEXT';
+    title: string;
+    url?: string;
+    instruction?: string;
+}
+
+/**
+ * Parse a material item to detect resource prefixes
+ */
+export function parseResourceItem(item: string): ParsedResource {
+    // VID_YT: Título :: URL
+    const vidMatch = item.match(/^VID_YT:\s*(.+?)\s*::\s*(.+)$/i);
+    if (vidMatch) {
+        return { type: 'VID_YT', title: vidMatch[1].trim(), url: vidMatch[2].trim() };
+    }
+
+    // IMG_URL: Título :: URL
+    const imgUrlMatch = item.match(/^IMG_URL:\s*(.+?)\s*::\s*(.+)$/i);
+    if (imgUrlMatch) {
+        return { type: 'IMG_URL', title: imgUrlMatch[1].trim(), url: imgUrlMatch[2].trim() };
+    }
+
+    // IMG_GEN: Título
+    const imgGenMatch = item.match(/^IMG_GEN:\s*(.+)$/i);
+    if (imgGenMatch) {
+        return { type: 'IMG_GEN', title: imgGenMatch[1].trim() };
+    }
+
+    // DIAG_PROMPT: Título :: Instrucción
+    const diagMatch = item.match(/^DIAG_PROMPT:\s*(.+?)\s*::\s*(.+)$/i);
+    if (diagMatch) {
+        return { type: 'DIAG_PROMPT', title: diagMatch[1].trim(), instruction: diagMatch[2].trim() };
+    }
+
+    // Default: plain text
+    return { type: 'TEXT', title: item };
+}
+
+/**
+ * Extract YouTube video ID from various URL formats
+ */
+function getYouTubeVideoId(url: string): string | null {
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/
+    ];
+
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
+}
+
+/**
+ * Component to render external resources (YouTube videos, images, etc.)
+ */
+export const ExternalResourceRenderer: React.FC<{ item: string }> = ({ item }) => {
+    const resource = parseResourceItem(item);
+
+    switch (resource.type) {
+        case 'VID_YT': {
+            const videoId = resource.url ? getYouTubeVideoId(resource.url) : null;
+            if (videoId) {
+                return (
+                    <div className="my-3 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                        <div className="aspect-video w-full">
+                            <iframe
+                                src={`https://www.youtube.com/embed/${videoId}`}
+                                title={resource.title}
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                                className="w-full h-full"
+                            />
+                        </div>
+                        <div className="px-3 py-2 bg-red-50 border-t border-red-100">
+                            <span className="text-xs font-bold text-red-600 mr-2">▶ YouTube</span>
+                            <span className="text-sm text-slate-700">{resource.title}</span>
+                        </div>
+                    </div>
+                );
+            }
+            // Fallback: show link if can't extract video ID
+            return (
+                <div className="my-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                    <span className="text-xs font-bold text-red-600 mr-2">▶ Video:</span>
+                    <a href={resource.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                        {resource.title}
+                    </a>
+                </div>
+            );
+        }
+
+        case 'IMG_URL': {
+            return (
+                <div className="my-3 rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
+                    <img
+                        src={resource.url}
+                        alt={resource.title}
+                        className="w-full max-h-80 object-contain bg-white"
+                        onError={(e) => {
+                            // Fallback if image fails to load
+                            (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                    />
+                    <div className="px-3 py-2 bg-blue-50 border-t border-blue-100">
+                        <span className="text-xs font-bold text-blue-600 mr-2">🖼️ Imagen</span>
+                        <span className="text-sm text-slate-700">{resource.title}</span>
+                    </div>
+                </div>
+            );
+        }
+
+        case 'IMG_GEN': {
+            return (
+                <div className="my-2 p-3 bg-purple-50 rounded-lg border border-purple-200 flex items-center gap-2">
+                    <span className="text-xs font-bold text-purple-600">✨ Imagen IA:</span>
+                    <span className="text-sm text-slate-700">{resource.title}</span>
+                    <span className="text-xs text-slate-400">(ver en Presentación)</span>
+                </div>
+            );
+        }
+
+        case 'DIAG_PROMPT': {
+            return (
+                <div className="my-2 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                    <span className="text-xs font-bold text-emerald-600 mr-2">📊 Diagrama:</span>
+                    <span className="text-sm text-slate-700">{resource.title}</span>
+                    <p className="text-xs text-slate-500 mt-1">{resource.instruction}</p>
+                </div>
+            );
+        }
+
+        default:
+            // Regular text - use markdown parser
+            return <MarkdownText text={item} />;
+    }
+};
+
+/**
+ * Check if a material item is an external resource
+ */
+export function isExternalResource(item: string): boolean {
+    return /^(VID_YT|IMG_URL|IMG_GEN|DIAG_PROMPT):/i.test(item);
+}
+
+```
+
+## File: `utils\normalization.ts`
+```ts
+export function slugify(text: string): string {
+  if (!text) return 'untitled';
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s\W-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function normalizeTitle(text: string): string {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,;:]$/g, ''); // Remove trailing punctuation
+}
+
+export function fuzzyMatchImage(
+    ref: string, 
+    images: { title: string; id: string }[] | undefined
+): { title: string; id: string } | undefined {
+    if (!images || images.length === 0) return undefined;
+    
+    const normRef = normalizeTitle(ref);
+    if (!normRef) return undefined;
+    
+    // 1. Exact match (normalized)
+    const exact = images.find(img => normalizeTitle(img.title) === normRef);
+    if (exact) return exact;
+
+    // 2. Fuzzy match (contains)
+    const fuzzy = images.find(img => {
+        const normImg = normalizeTitle(img.title);
+        return normImg && (normImg.includes(normRef) || normRef.includes(normImg));
+    });
+    
+    return fuzzy;
 }
 
 ```

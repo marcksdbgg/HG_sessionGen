@@ -2,11 +2,12 @@ import { ai } from "../services/geminiService";
 import { SESSION_SCHEMA } from "../schemas/sessionSchema";
 import { PromptComposer } from "./PromptComposer";
 import { RetryPolicy } from "./RetryPolicy";
-import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateCallback } from "../types";
+import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateCallback, Resource } from "../types";
 import { Type, Schema } from "@google/genai";
 import { slugify } from "../utils/normalization";
 import { Prompts } from "../prompts";
 import { ExternalResourceResolver } from "./ExternalResourceResolver";
+import { ResourceOrchestrator } from "./ResourceOrchestrator";
 
 export class SessionGenerator {
     private static retryPolicy = new RetryPolicy();
@@ -134,6 +135,27 @@ export class SessionGenerator {
     }
 
     private static validateSessionData(data: SessionData): SessionData {
+        // Validate polymorphic resources array
+        if (data.resources?.resources) {
+            data.resources.resources.forEach((resource, idx) => {
+                if (!resource.id) {
+                    resource.id = `${resource.type.toLowerCase()}-${idx}-${slugify(resource.title).slice(0, 15)}`;
+                }
+                // Set initial status to pending
+                if (!resource.status) {
+                    resource.status = 'pending';
+                }
+            });
+        } else {
+            // Initialize empty resources array if missing
+            if (!data.resources) {
+                data.resources = { resources: [] };
+            } else if (!data.resources.resources) {
+                data.resources.resources = [];
+            }
+        }
+
+        // Legacy validation (for backward compatibility)
         if (data.resources?.organizer && !data.resources.organizer.id) {
             data.resources.organizer.id = `org-${slugify(data.sessionTitle).slice(0, 10)}`;
         }
@@ -152,6 +174,7 @@ export class SessionGenerator {
 
     /**
      * Background resource enrichment loop.
+     * Now uses ResourceOrchestrator for polymorphic resources (Flow B).
      */
     private static async enrichResourcesBackground(
         data: SessionData,
@@ -160,7 +183,16 @@ export class SessionGenerator {
     ): Promise<void> {
         const resources = data.resources;
 
-        // 1. Generate images (Parallel)
+        // FLOW B: Process polymorphic resources via code-controlled orchestrator
+        const orchestratorPromise = onUpdate && resources.resources && resources.resources.length > 0
+            ? ResourceOrchestrator.processAll(
+                resources.resources,
+                { nivel: request.nivel, grado: request.grado, area: request.area },
+                onUpdate
+            )
+            : Promise.resolve();
+
+        // Legacy: Generate images (Parallel) - for backward compatibility
         const imagePromises = (resources.images || []).map(async (img) => {
             if (img.base64Data) {
                 onUpdate?.('image', img.id, { ...img, isLoading: false });
@@ -175,15 +207,15 @@ export class SessionGenerator {
             }
         });
 
-        // 2. Generate extra diagrams (Parallel)
+        // Legacy: Generate extra diagrams (Parallel)
         const diagramPromises = this.scanAndGenerateDiagramsWithCallback(data, request, onUpdate);
 
-        // 3. Resolve External Links (VID_YT / IMG_URL with SEARCH:)
-        // We assume scanAndResolveLinksWithCallback handles the parallel logic internally
+        // Legacy: Resolve External Links (VID_YT / IMG_URL with SEARCH:)
         const linkPromises = this.scanAndResolveLinksWithCallback(data, onUpdate);
 
         // Wait for all to finish (fire-and-forget from caller perspective)
         await Promise.all([
+            orchestratorPromise,
             Promise.allSettled(imagePromises),
             diagramPromises,
             linkPromises

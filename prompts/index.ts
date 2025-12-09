@@ -29,7 +29,11 @@ export interface PromptBase {
     inputContract?: string;
     outputContract?: string;
     guidelines?: string[];
-    examples?: string[];
+    examples?: string[] | string;
+
+    // Diagram-specific fields
+    typeDefinitions?: string;
+    syntaxRules?: string;
 }
 
 // Export the raw JSONs wrapped in a typed object

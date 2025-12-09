@@ -14,7 +14,7 @@ export default {
   style: [
     "Redacción clara, accionable y orientada a aula real.",
     "Evita relleno, prioriza pasos concretos.",
-    "Cuando menciones imágenes generadas, integra el marcador {{imagen:Título Exacto}} dentro de la estrategia donde se usa.",
+    "Usa el marcador GENÉRICO {{recurso:Título Exacto}} para referenciar cualquier tipo de recurso (imagen, diagrama, video).",
     "No traduzcas nombres del área/grado."
   ].join(" "),
 
@@ -29,29 +29,31 @@ export default {
     // Identidad de docente
     "El 'teacherName' debe ser exactamente '___________'.",
 
-    // Robustez de IDs (mitiga 5.2 aunque el schema aún no lo exija)
-    "Siempre incluye 'id' en resources.organizer y en cada objeto de resources.images.",
-    "Usa ids estables y breves tipo: org-<tema-corto> y img-<momento>-<slug>.",
+    // === SISTEMA DE RECURSOS POLIMÓRFICOS ===
+    "Los recursos van en el array resources.resources[] con estructura polimórfica.",
+    "Cada recurso tiene: id, type, title, moment + campos específicos según type.",
 
-    // Títulos sincronizados (mitiga 5.3)
-    "Todo título de imagen en resources.images debe coincidir EXACTAMENTE con el título usado en {{imagen:Título Exacto}}.",
-    "No uses sinónimos ni variaciones de artículos en esos títulos.",
+    // IDs estables
+    "Formato de ID: tipo-momento-slug (ej: ai_image-inicio-mapa-vocales).",
 
-    // URLs y Recursos Externos
-    "Si el docente pide un recurso externo (video/foto) y NO tienes la URL exacta:",
-    "Usa el formato: 'VID_YT: Título :: SEARCH: consulta' o 'IMG_URL: Título :: SEARCH: consulta'.",
-    "NO inventes URLs falsas. Delega la búsqueda al sistema usando 'SEARCH:'.",
+    // Títulos sincronizados
+    "El title en resources[] DEBE coincidir EXACTAMENTE con {{recurso:Título}}.",
+    "No uses sinónimos ni variaciones de artículos.",
 
-    // Materiales por sección: convención para el segundo flujo
-    "En inicio.materiales, desarrollo.materiales, cierre.materiales y tareaCasa.materiales usa estos prefijos cuando aplique:",
-    "1) 'IMG_GEN: <Título Exacto>' para referenciar una imagen a generar (debe existir en resources.images).",
-    "2) 'VID_YT: <Título> :: SEARCH: <consulta>' para videos de YouTube.",
-    "3) 'IMG_URL: <Título> :: SEARCH: <consulta>' para imágenes reales externas.",
-    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional.",
+    // === TIPOS DE RECURSOS Y SUS CAMPOS ===
+    "AI_IMAGE: requiere generationPrompt (prompt en inglés para imagen IA).",
+    "DIAGRAM: requiere diagramType + generationPrompt (descripción, NO código Mermaid).",
+    "VIDEO_SEARCH: requiere searchQuery (búsqueda en español).",
+    "IMAGE_SEARCH: requiere searchQuery (búsqueda de foto real).",
 
-    // Mermaid base
-    "El organizador visual en resources.organizer debe resumir el tema central de toda la sesión.",
-    "El mermaidCode no debe incluir HTML ni scripts.",
+    // === RESTRICCIONES CRÍTICAS ===
+    "⚠️ NO generes mermaidCode en Flow A - solo describe QUÉ diagramar.",
+    "⚠️ NO inventes URLs - usa VIDEO_SEARCH o IMAGE_SEARCH con searchQuery.",
+    "⚠️ USA {{recurso:Título}} (NO {{imagen:...}}) - el marcador es genérico.",
+
+    // Materiales por sección
+    "En materiales de cada sección lista recursos con: [TIPO] Título",
+    "Ejemplo: [AI_IMAGE] Mapa Vocales, [VIDEO_SEARCH] Canción Vocales.",
 
     // Coherencia didáctica
     "No hagas listas genéricas; contextualiza al área, grado y pedido docente.",

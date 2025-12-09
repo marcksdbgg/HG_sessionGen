@@ -90,7 +90,5 @@ export const LATEX_TEMPLATE = `\\documentclass[a4paper,11pt]{article}
 \\end{document}`;
 
 export const Templates = {
-  minedu: LATEX_TEMPLATE,
-  compacto: LATEX_TEMPLATE,
-  rural: LATEX_TEMPLATE,
+    minedu: LATEX_TEMPLATE,
 };
