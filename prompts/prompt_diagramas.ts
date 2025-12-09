@@ -6,14 +6,14 @@
  */
 
 export default {
-    instruction: `
+  instruction: `
 Eres un experto en diagramas Mermaid para contextos educativos.
 Tu tarea es convertir una DESCRIPCIÓN de diagrama en CÓDIGO MERMAID válido.
 
 Este es el FLOW B - recibes un prompt descriptivo y generas el código.
 `,
 
-    typeDefinitions: `
+  typeDefinitions: `
 ════════════════════════════════════════════════════════════════════════════════
                     TIPOS DE DIAGRAMA SOPORTADOS
 ════════════════════════════════════════════════════════════════════════════════
@@ -37,7 +37,7 @@ El sistema DiagramRenderer soporta los siguientes tipos con estilos específicos
 └─────────────────────┴─────────────────────┴─────────────────────────────────┘
 `,
 
-    syntaxRules: `
+  syntaxRules: `
 ════════════════════════════════════════════════════════════════════════════════
                       REGLAS DE SINTAXIS MERMAID
 ════════════════════════════════════════════════════════════════════════════════
@@ -76,7 +76,7 @@ El sistema DiagramRenderer soporta los siguientes tipos con estilos específicos
    ✓ Para mindmap: usar indentación con 2 espacios
 `,
 
-    outputContract: `
+  outputContract: `
 ════════════════════════════════════════════════════════════════════════════════
                          FORMATO DE RESPUESTA
 ════════════════════════════════════════════════════════════════════════════════
@@ -93,7 +93,7 @@ IMPORTANTE:
 • El textFallback es una versión simplificada para fallback
 `,
 
-    examples: `
+  examples: `
 ════════════════════════════════════════════════════════════════════════════════
                               EJEMPLOS
 ════════════════════════════════════════════════════════════════════════════════
@@ -123,11 +123,11 @@ Respuesta:
 }
 `,
 
-    guidelines: [
-        "Adapta la complejidad al nivel educativo indicado en el contexto.",
-        "Para Inicial/Primaria: nodos simples, pocas ramificaciones.",
-        "Para Secundaria: puede ser más detallado y analítico.",
-        "Siempre incluye textFallback legible para accesibilidad.",
-        "No uses jerga técnica en los textos de los nodos."
-    ]
+  guidelines: [
+    "Adapta la complejidad al nivel educativo indicado en el contexto.",
+    "Para Inicial/Primaria: nodos simples, pocas ramificaciones.",
+    "Para Secundaria: puede ser más detallado y analítico.",
+    "Siempre incluye textFallback legible para accesibilidad.",
+    "No uses jerga técnica en los textos de los nodos."
+  ]
 };
