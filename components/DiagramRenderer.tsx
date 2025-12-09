@@ -100,10 +100,33 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
             cleanCode = cleanCode.replace(/\\n/g, '\n');
 
             // Fix: Ensure graph declaration is on its own line
-            // e.g., "graph TD A[...]" -> "graph TD\nA[...]"
             cleanCode = cleanCode.replace(/^(graph|flowchart)\s+([A-Za-z0-9]+)\s+([^\n])/, '$1 $2\n$3');
-            // e.g., "mindmap root((...))" -> "mindmap\nroot((...))"
             cleanCode = cleanCode.replace(/^mindmap\s+([^\n])/, 'mindmap\n$1');
+
+            // Defensive cleanup: Remove lines that are likely titles or plain text (heuristics)
+            const lines = cleanCode.split('\n');
+            cleanCode = lines.filter(line => {
+                const trimmed = line.trim();
+                if (!trimmed) return true;
+                
+                // Allow standard mermaid declarations
+                if (/^(graph|flowchart|mindmap|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie)/.test(trimmed)) return true;
+                
+                // Allow node definitions and relationships
+                if (/[\[\(\{\>\|]/.test(trimmed)) return true;
+                
+                // Allow indented lines (subgraphs/mindmaps)
+                if (line.startsWith('  ') || line.startsWith('\t')) return true;
+
+                // Remove lines that look like titles (contain colon, no node syntax)
+                if (trimmed.includes(':') && !/[\[\(\{\>\|]/.test(trimmed)) return false;
+
+                // Remove lines that are comma-separated words (invalid syntax outside [] or {})
+                // e.g. "Migración, Emigración, Inmigración"
+                if (!trimmed.includes('-->') && !trimmed.includes('---') && trimmed.includes(',') && !/[\[\(\{\>\|]/.test(trimmed)) return false;
+
+                return true;
+            }).join('\n');
 
             // Clear previous content
             containerRef.current.innerHTML = '';

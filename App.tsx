@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import Home from './components/Home';
 import SessionResult from './components/SessionResult';
-import { SessionData, ResourceUpdateCallback, GeneratedImage, Organizer } from './types';
+import { SessionData, ResourceUpdateCallback, GeneratedImage, Organizer, Resource } from './types';
 
 type ViewState = 'home' | 'result';
 
@@ -25,9 +25,9 @@ function App() {
 
       if (type === 'image') {
         const img = resource as GeneratedImage;
-        const updatedImages = nextSession.resources.images.map(existing =>
+        const updatedImages = nextSession.resources.images?.map(existing =>
           existing.id === id ? img : existing
-        );
+        ) || [];
         nextSession.resources = {
             ...nextSession.resources,
             images: updatedImages
@@ -56,6 +56,21 @@ function App() {
             ...nextSession[update.section] as any,
             [update.field]: update.value
           }
+        };
+      }
+
+      else if (type === 'resource') {
+        const res = resource as Resource;
+        const currentResources = nextSession.resources.resources || [];
+        
+        // Update the specific resource in the array
+        const updatedResources = currentResources.map(r => 
+            r.id === id ? res : r
+        );
+
+        nextSession.resources = {
+            ...nextSession.resources,
+            resources: updatedResources
         };
       }
 

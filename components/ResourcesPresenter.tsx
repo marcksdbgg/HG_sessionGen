@@ -1,188 +1,267 @@
 import React, { useState } from 'react';
-import { VirtualResources, GeneratedImage, Organizer } from '../types';
+import {
+    VirtualResources,
+    Resource,
+    AIImageResource,
+    DiagramResource,
+    ExternalVideoResource,
+    ExternalImageResource,
+    ResourceMoment
+} from '../types';
 import DiagramRenderer from './DiagramRenderer';
-import { Maximize2, X, Download, Image as ImageIcon, Layout, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import ResourceCard from './ui/ResourceCard';
+import {
+    ArrowLeft,
+    X,
+    Layout,
+    Image as ImageIcon,
+    MonitorPlay,
+    Sparkles,
+    ChevronLeft,
+    ChevronRight,
+    Download,
+    ExternalLink,
+    Search
+} from 'lucide-react';
 
 interface ResourcesPresenterProps {
     resources: VirtualResources;
     onClose: () => void;
-    initialImage?: GeneratedImage | null;
+    initialResourceId?: string | null;
 }
 
-const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialImage }) => {
-    const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(initialImage || null);
+const getYouTubeVideoId = (url: string): string | null => {
+    if (!url) return null;
+    if (url.includes('results?search_query')) return null;
+    const cleanUrl = url.trim();
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
+        /youtube\.com\/.*[?&]v=([^&\n?#]+)/
+    ];
+    for (const pattern of patterns) {
+        const match = cleanUrl.match(pattern);
+        if (match && match[1]) return match[1];
+    }
+    return null;
+};
 
-    // Support for multiple diagrams
-    const allOrganizers = [resources.organizer, ...(resources.diagrams || [])];
-    const [activeOrganizerIdx, setActiveOrganizerIdx] = useState(0);
+const isSearchUrl = (url: string): boolean => {
+    return url.includes('google.com/search') || url.includes('youtube.com/results');
+};
 
-    // Filter valid images with safe fallback for undefined
-    const validImages = (resources.images || []).filter(img => img.base64Data);
+const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialResourceId }) => {
+    let allResources = resources.resources || [];
 
-    const handleNextImage = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!selectedImage) return;
-        const idx = validImages.findIndex(img => img.id === selectedImage.id);
-        const nextIdx = (idx + 1) % validImages.length;
-        setSelectedImage(validImages[nextIdx]);
+    if (resources.images && resources.images.length > 0) {
+        const legacyImages: AIImageResource[] = resources.images
+            .filter(img => !allResources.some(r => r.id === img.id))
+            .map(img => ({
+                id: img.id,
+                type: 'AI_IMAGE',
+                title: img.title,
+                moment: img.moment as ResourceMoment,
+                status: img.error ? 'error' : (img.isLoading ? 'loading' : (img.base64Data ? 'ready' : 'pending')),
+                error: img.error,
+                generationPrompt: img.prompt,
+                base64Data: img.base64Data
+            }));
+        
+        allResources = [...allResources, ...legacyImages];
+    }
+
+    const aiImages = allResources.filter((r): r is AIImageResource => r.type === 'AI_IMAGE' && r.status === 'ready');
+    const diagrams = allResources.filter((r): r is DiagramResource => r.type === 'DIAGRAM' && r.status === 'ready');
+    const videos = allResources.filter((r): r is ExternalVideoResource => r.type === 'VIDEO_SEARCH' && r.status === 'ready');
+    const externalImages = allResources.filter((r): r is ExternalImageResource => r.type === 'IMAGE_SEARCH' && r.status === 'ready');
+
+    const displayResources = allResources;
+
+    const [selectedResource, setSelectedResource] = useState<Resource | null>(
+        initialResourceId ? allResources.find(r => r.id === initialResourceId) || null : null
+    );
+
+    const [activeDiagramIdx, setActiveDiagramIdx] = useState(0);
+
+    const handleResourceClick = (resource: Resource) => {
+        if (resource.status === 'ready') {
+            setSelectedResource(resource);
+        }
     };
 
-    const handlePrevImage = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!selectedImage) return;
-        const idx = validImages.findIndex(img => img.id === selectedImage.id);
-        const prevIdx = (idx - 1 + validImages.length) % validImages.length;
-        setSelectedImage(validImages[prevIdx]);
+    const handleCloseFullscreen = () => {
+        setSelectedResource(null);
     };
 
-    const handleNextOrganizer = () => {
-        setActiveOrganizerIdx(prev => (prev + 1) % allOrganizers.length);
+    const handleNavigate = (direction: 'prev' | 'next') => {
+        if (!selectedResource) return;
+        const currentIdx = displayResources.findIndex(r => r.id === selectedResource.id);
+        const readyResources = displayResources.filter(r => r.status === 'ready');
+        const currentReadyIdx = readyResources.findIndex(r => r.id === selectedResource.id);
+
+        if (direction === 'next') {
+            const nextIdx = (currentReadyIdx + 1) % readyResources.length;
+            setSelectedResource(readyResources[nextIdx]);
+        } else {
+            const prevIdx = (currentReadyIdx - 1 + readyResources.length) % readyResources.length;
+            setSelectedResource(readyResources[prevIdx]);
+        }
     };
 
-    const handlePrevOrganizer = () => {
-        setActiveOrganizerIdx(prev => (prev - 1 + allOrganizers.length) % allOrganizers.length);
+    const handleDownload = () => {
+        if (!selectedResource) return;
+        if (selectedResource.type === 'AI_IMAGE' && (selectedResource as AIImageResource).base64Data) {
+            const link = document.createElement('a');
+            link.href = (selectedResource as AIImageResource).base64Data!;
+            link.download = `${selectedResource.title.replace(/\s+/g, '-')}.png`;
+            link.click();
+        } else if (selectedResource.type === 'IMAGE_SEARCH' && (selectedResource as ExternalImageResource).url) {
+            window.open((selectedResource as ExternalImageResource).url, '_blank');
+        } else if (selectedResource.type === 'VIDEO_SEARCH' && (selectedResource as ExternalVideoResource).url) {
+            window.open((selectedResource as ExternalVideoResource).url, '_blank');
+        }
     };
 
-    const handleDownload = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!selectedImage || !selectedImage.base64Data) return;
-
-        const link = document.createElement('a');
-        link.href = selectedImage.base64Data;
-        link.download = `Recurso-${selectedImage.title.replace(/\s+/g, '-')}.png`;
-        link.click();
-    };
+    const readyCount = allResources.filter(r => r.status === 'ready').length;
+    const loadingCount = allResources.filter(r => r.status === 'loading' || r.status === 'pending').length;
+    const errorCount = allResources.filter(r => r.status === 'error').length;
 
     return (
-        <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto animate-in fade-in duration-300 font-sans">
-            {/* Header */}
-            <div className="sticky top-0 z-10 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={onClose}
-                        className="p-2 bg-slate-900 text-slate-300 rounded-full hover:bg-slate-800 hover:text-white transition-colors border border-slate-800"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </button>
-                    <div>
-                        <h2 className="text-xl font-bold text-white tracking-tight">Sala de Proyección</h2>
-                        <p className="text-sm text-slate-400">Recursos didácticos virtuales</p>
+        <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto animate-in fade-in duration-300">
+            <div className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800 px-4 md:px-6 py-4">
+                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={onClose}
+                            className="p-2 bg-slate-800 text-slate-300 rounded-full hover:bg-slate-700 hover:text-white transition-colors"
+                        >
+                            <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div>
+                            <h2 className="text-xl font-bold text-white">Sala de Proyección</h2>
+                            <p className="text-sm text-slate-400">
+                                {readyCount} recursos listos
+                                {loadingCount > 0 && ` • ${loadingCount} cargando`}
+                                {errorCount > 0 && ` • ${errorCount} errores`}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="hidden md:flex items-center gap-2 text-sm">
+                        {aiImages.length > 0 && (
+                            <span className="px-2 py-1 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center gap-1">
+                                <ImageIcon className="w-3 h-3" /> {aiImages.length}
+                            </span>
+                        )}
+                        {diagrams.length > 0 && (
+                            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded-lg flex items-center gap-1">
+                                <Sparkles className="w-3 h-3" /> {diagrams.length}
+                            </span>
+                        )}
+                        {videos.length > 0 && (
+                            <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded-lg flex items-center gap-1">
+                                <MonitorPlay className="w-3 h-3" /> {videos.length}
+                            </span>
+                        )}
+                        {externalImages.length > 0 && (
+                            <span className="px-2 py-1 bg-sky-500/20 text-sky-400 rounded-lg flex items-center gap-1">
+                                <ExternalLink className="w-3 h-3" /> {externalImages.length}
+                            </span>
+                        )}
                     </div>
                 </div>
             </div>
 
-            <div className="max-w-7xl mx-auto p-6 space-y-12">
-
-                {/* Visual Organizer Section */}
-                <section>
-                    <div className="flex items-center justify-between mb-6 text-emerald-400 border-b border-slate-800 pb-2">
-                        <div className="flex items-center gap-3">
-                            <Layout className="w-6 h-6" />
-                            <h3 className="font-bold text-xl uppercase tracking-wider">Organizadores Visuales</h3>
+            <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
+                {displayResources.length === 0 ? (
+                    <div className="text-center py-20">
+                        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-slate-800 flex items-center justify-center">
+                            <Layout className="w-10 h-10 text-slate-600" />
                         </div>
-                        {allOrganizers.length > 1 && (
-                            <div className="flex items-center gap-2 text-slate-400 text-sm">
-                                <button onClick={handlePrevOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronLeft className="w-5 h-5" /></button>
-                                <span>{activeOrganizerIdx + 1} / {allOrganizers.length}</span>
-                                <button onClick={handleNextOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronRight className="w-5 h-5" /></button>
-                            </div>
-                        )}
+                        <h3 className="text-xl font-bold text-slate-400 mb-2">Sin recursos</h3>
+                        <p className="text-slate-500">Los recursos se mostrarán aquí cuando estén listos.</p>
                     </div>
-                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-black/50 border-4 border-slate-800 relative">
-                        {/* Pass a key to force re-render when switching organizers */}
-                        <DiagramRenderer
-                            key={allOrganizers[activeOrganizerIdx].id}
-                            organizer={allOrganizers[activeOrganizerIdx]}
-                            className="min-h-[500px]"
-                        />
-                    </div>
-                </section>
-
-                {/* Images Grid Section */}
-                {resources.images.length > 0 && (
-                    <section>
-                        <div className="flex items-center gap-3 mb-6 text-sky-400 border-b border-slate-800 pb-2">
-                            <ImageIcon className="w-6 h-6" />
-                            <h3 className="font-bold text-xl uppercase tracking-wider">Galería de Imágenes</h3>
-                            {resources.images.some(img => img.isLoading) && (
-                                <span className="text-xs text-slate-500 ml-2">(generando...)</span>
-                            )}
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                            {resources.images.map((img) => (
-                                <div
-                                    key={img.id}
-                                    className={`group relative bg-slate-900 rounded-2xl overflow-hidden border transition-all duration-300 shadow-xl flex flex-col ${img.base64Data
-                                        ? 'border-slate-800 hover:border-sky-500 hover:shadow-sky-500/20 cursor-pointer'
-                                        : 'border-slate-700 opacity-70'
-                                        }`}
-                                    onClick={() => img.base64Data && setSelectedImage(img)}
-                                >
-                                    <div className="aspect-[4/3] w-full overflow-hidden bg-black relative">
-                                        {img.base64Data ? (
-                                            <>
-                                                <img
-                                                    src={img.base64Data}
-                                                    alt={img.title}
-                                                    className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-105"
-                                                />
-                                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
-                                            </>
-                                        ) : (
-                                            // Loading placeholder
-                                            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 animate-pulse">
-                                                <div className="w-12 h-12 border-4 border-slate-600 border-t-sky-500 rounded-full animate-spin mb-3"></div>
-                                                <span className="text-slate-500 text-sm">Generando imagen...</span>
-                                            </div>
-                                        )}
-
-                                        <div className="absolute bottom-3 left-3">
-                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide ${img.moment === 'Inicio' ? 'bg-blue-600/90 text-white' :
-                                                img.moment === 'Desarrollo' ? 'bg-indigo-600/90 text-white' :
-                                                    'bg-amber-600/90 text-white'
-                                                }`}>
-                                                {img.moment}
-                                            </span>
+                ) : (
+                    <>
+                        {diagrams.length > 0 && (
+                            <section className="mb-12">
+                                <div className="flex items-center gap-3 mb-6 text-emerald-400">
+                                    <Sparkles className="w-6 h-6" />
+                                    <h3 className="font-bold text-xl">Organizadores Visuales</h3>
+                                    {diagrams.length > 1 && (
+                                        <div className="ml-auto flex items-center gap-2 text-sm text-slate-400">
+                                            <button
+                                                onClick={() => setActiveDiagramIdx((activeDiagramIdx - 1 + diagrams.length) % diagrams.length)}
+                                                className="p-1 bg-slate-800 rounded hover:bg-slate-700"
+                                            >
+                                                <ChevronLeft className="w-4 h-4" />
+                                            </button>
+                                            <span>{activeDiagramIdx + 1} / {diagrams.length}</span>
+                                            <button
+                                                onClick={() => setActiveDiagramIdx((activeDiagramIdx + 1) % diagrams.length)}
+                                                className="p-1 bg-slate-800 rounded hover:bg-slate-700"
+                                            >
+                                                <ChevronRight className="w-4 h-4" />
+                                            </button>
                                         </div>
-                                    </div>
-                                    <div className="p-4 flex-1 flex flex-col justify-between bg-slate-900">
-                                        <h4 className="font-bold text-slate-100 text-lg leading-tight mb-2 group-hover:text-sky-400 transition-colors">{img.title}</h4>
-                                        <div className="flex items-center text-xs text-slate-500 gap-1">
-                                            {img.base64Data ? (
-                                                <>
-                                                    <Maximize2 className="w-3 h-3" />
-                                                    <span>Clic para ampliar</span>
-                                                </>
-                                            ) : (
-                                                <span className="italic">Preparando recurso...</span>
-                                            )}
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
-                            ))}
-                        </div>
-                    </section>
+                                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800">
+                                    <DiagramRenderer
+                                        key={diagrams[activeDiagramIdx]?.id}
+                                        organizer={{
+                                            id: diagrams[activeDiagramIdx]?.id || '',
+                                            title: diagrams[activeDiagramIdx]?.title || '',
+                                            type: diagrams[activeDiagramIdx]?.diagramType || 'mapa-conceptual',
+                                            mermaidCode: diagrams[activeDiagramIdx]?.mermaidCode || '',
+                                            description: diagrams[activeDiagramIdx]?.generationPrompt || '',
+                                            textFallback: diagrams[activeDiagramIdx]?.textFallback
+                                        }}
+                                        className="min-h-[400px]"
+                                    />
+                                </div>
+                            </section>
+                        )}
+
+                        <section>
+                            <div className="flex items-center gap-3 mb-6 text-sky-400">
+                                <ImageIcon className="w-6 h-6" />
+                                <h3 className="font-bold text-xl">Recursos Multimedia</h3>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {displayResources
+                                    .filter(r => r.type !== 'DIAGRAM')
+                                    .map((resource, idx) => (
+                                        <div
+                                            key={resource.id}
+                                            style={{ animationDelay: `${idx * 100}ms` }}
+                                        >
+                                            <ResourceCard
+                                                resource={resource}
+                                                onClick={() => handleResourceClick(resource)}
+                                            />
+                                        </div>
+                                    ))}
+                            </div>
+                        </section>
+                    </>
                 )}
             </div>
 
-            {/* Lightbox / Presentation Mode */}
-            {selectedImage && (
-                <div className="fixed inset-0 z-[60] bg-black flex flex-col animate-in fade-in duration-200">
-
-                    {/* Lightbox Header */}
-                    <div className="absolute top-0 w-full z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
-                        <h3 className="text-lg font-bold text-white/90 drop-shadow-md px-4">{selectedImage.title}</h3>
-                        <div className="flex gap-3">
+            {selectedResource && (
+                <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-b from-black to-transparent">
+                        <h3 className="text-lg font-bold text-white truncate">{selectedResource.title}</h3>
+                        <div className="flex items-center gap-2">
                             <button
                                 onClick={handleDownload}
-                                className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all backdrop-blur-sm"
-                                title="Descargar"
+                                className="p-3 bg-white/10 text-white rounded-full hover:bg-white/20 transition"
+                                title="Descargar / Abrir"
                             >
                                 <Download className="w-5 h-5" />
                             </button>
                             <button
-                                onClick={() => setSelectedImage(null)}
-                                className="p-3 bg-white/10 text-white rounded-full hover:bg-red-500/80 transition-all backdrop-blur-sm"
+                                onClick={handleCloseFullscreen}
+                                className="p-3 bg-white/10 text-white rounded-full hover:bg-red-500/80 transition"
                                 title="Cerrar"
                             >
                                 <X className="w-5 h-5" />
@@ -190,41 +269,105 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         </div>
                     </div>
 
-                    {/* Main Image Area */}
-                    <div className="flex-1 flex items-center justify-center relative p-4 group">
-
-                        {/* Navigation Buttons (visible on hover) */}
-                        {validImages.length > 1 && (
+                    <div className="flex-1 flex items-center justify-center p-4 relative">
+                        {allResources.filter(r => r.status === 'ready').length > 1 && (
                             <>
                                 <button
-                                    onClick={handlePrevImage}
-                                    className="absolute left-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
+                                    onClick={() => handleNavigate('prev')}
+                                    className="absolute left-4 p-3 bg-white/10 rounded-full hover:bg-white/20 text-white transition"
                                 >
                                     <ChevronLeft className="w-8 h-8" />
                                 </button>
                                 <button
-                                    onClick={handleNextImage}
-                                    className="absolute right-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
+                                    onClick={() => handleNavigate('next')}
+                                    className="absolute right-4 p-3 bg-white/10 rounded-full hover:bg-white/20 text-white transition"
                                 >
                                     <ChevronRight className="w-8 h-8" />
                                 </button>
                             </>
                         )}
 
-                        <img
-                            src={selectedImage.base64Data}
-                            alt={selectedImage.title}
-                            className="max-h-full max-w-full object-contain shadow-2xl drop-shadow-2xl"
-                        />
+                        {selectedResource.type === 'AI_IMAGE' && (selectedResource as AIImageResource).base64Data && (
+                            <img
+                                src={(selectedResource as AIImageResource).base64Data}
+                                alt={selectedResource.title}
+                                className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+                            />
+                        )}
+
+                        {selectedResource.type === 'IMAGE_SEARCH' && (selectedResource as ExternalImageResource).url && (
+                            isSearchUrl((selectedResource as ExternalImageResource).url!) ? (
+                                <div className="flex flex-col items-center justify-center text-center p-8 bg-slate-900 rounded-xl border border-slate-700 max-w-md">
+                                    <Search className="w-16 h-16 text-sky-400 mb-4" />
+                                    <h4 className="text-xl font-bold text-white mb-2">Búsqueda Externa</h4>
+                                    <p className="text-slate-400 mb-6">Explora imágenes relacionadas con este tema.</p>
+                                    <a 
+                                        href={(selectedResource as ExternalImageResource).url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-6 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-500 transition font-bold"
+                                    >
+                                        Ver resultados en Google
+                                    </a>
+                                </div>
+                            ) : (
+                                <img
+                                    src={(selectedResource as ExternalImageResource).url}
+                                    alt={selectedResource.title}
+                                    className="max-h-full max-w-full object-contain rounded-lg shadow-2xl"
+                                />
+                            )
+                        )}
+
+                        {selectedResource.type === 'VIDEO_SEARCH' && (selectedResource as ExternalVideoResource).url && (
+                            <div className="w-full max-w-4xl aspect-video">
+                                {getYouTubeVideoId((selectedResource as ExternalVideoResource).url!) ? (
+                                    <iframe
+                                        src={`https://www.youtube.com/embed/${getYouTubeVideoId((selectedResource as ExternalVideoResource).url!)}`}
+                                        className="w-full h-full rounded-lg shadow-2xl"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                    />
+                                ) : (
+                                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 rounded-lg">
+                                        <MonitorPlay className="w-16 h-16 text-red-400 mb-4" />
+                                        <h4 className="text-xl font-bold text-white mb-2">Video Educativo</h4>
+                                        <p className="text-slate-400 mb-6">Ver este video en YouTube</p>
+                                        <a
+                                            href={(selectedResource as ExternalVideoResource).url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-500 transition flex items-center gap-2"
+                                        >
+                                            <ExternalLink className="w-5 h-5" />
+                                            Abrir Video
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {selectedResource.type === 'DIAGRAM' && (selectedResource as DiagramResource).mermaidCode && (
+                            <div className="w-full max-w-5xl bg-white rounded-lg p-4 shadow-2xl">
+                                <DiagramRenderer
+                                    organizer={{
+                                        id: selectedResource.id,
+                                        title: selectedResource.title,
+                                        type: (selectedResource as DiagramResource).diagramType,
+                                        mermaidCode: (selectedResource as DiagramResource).mermaidCode!,
+                                        description: (selectedResource as DiagramResource).generationPrompt,
+                                        textFallback: (selectedResource as DiagramResource).textFallback
+                                    }}
+                                    className="min-h-[500px]"
+                                />
+                            </div>
+                        )}
                     </div>
 
-                    {/* Footer Info */}
-                    <div className="p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-                        <div className="max-w-4xl mx-auto text-center">
-                            <p className="text-slate-300 text-sm md:text-base font-medium bg-black/50 inline-block px-4 py-2 rounded-full backdrop-blur-md border border-white/10">
-                                {selectedImage.prompt}
-                            </p>
-                        </div>
+                    <div className="p-4 bg-gradient-to-t from-black to-transparent text-center">
+                        <span className="text-slate-400 text-sm px-4 py-2 bg-black/50 rounded-full">
+                            {selectedResource.moment} • {selectedResource.type.replace('_', ' ')}
+                        </span>
                     </div>
                 </div>
             )}

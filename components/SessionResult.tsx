@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SessionData, GeneratedImage, ResourceUpdateCallback } from '../types';
+import { SessionData, GeneratedImage, ResourceUpdateCallback, Resource } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
@@ -27,7 +27,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
 
     // Presentation State
     const [showPresentation, setShowPresentation] = useState(false);
-    const [presentationInitialImage, setPresentationInitialImage] = useState<GeneratedImage | null>(null);
+    const [presentationInitialId, setPresentationInitialId] = useState<string | null>(null);
 
     // Sync local state with parent data prop (for progressive resource updates)
     useEffect(() => {
@@ -86,7 +86,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     };
 
     const handleOpenImage = (img: GeneratedImage) => {
-        setPresentationInitialImage(img);
+        setPresentationInitialId(img.id);
+        setShowPresentation(true);
+    };
+
+    const handleOpenResource = (resource: Resource) => {
+        setPresentationInitialId(resource.id);
         setShowPresentation(true);
     };
 
@@ -143,10 +148,10 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
             {showPresentation && data.resources && (
                 <ResourcesPresenter
                     resources={data.resources}
-                    initialImage={presentationInitialImage}
+                    initialResourceId={presentationInitialId}
                     onClose={() => {
                         setShowPresentation(false);
-                        setPresentationInitialImage(null);
+                        setPresentationInitialId(null);
                     }}
                 />
             )}
@@ -205,6 +210,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                     onRegenerate={() => handleRegenerate(section.key as keyof SessionData, section.regenerateInstructions)}
                                     onUpdateField={(fieldKey, value) => updateSection(section.key as keyof SessionData, fieldKey, value)}
                                     onOpenImage={handleOpenImage}
+                                    onOpenResource={handleOpenResource}
                                 />
                             ))}
                         </div>
