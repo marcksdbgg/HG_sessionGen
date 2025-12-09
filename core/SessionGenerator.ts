@@ -31,7 +31,8 @@ export class SessionGenerator {
         const fullPrompt = PromptComposer.compose(request);
 
         // FLOW A: Text Pipeline - Generate Structure (~10-15s)
-        let sessionData = await this.generateTextSession(fullPrompt);
+        // Now passing the request object to handle image input
+        let sessionData = await this.generateTextSession(fullPrompt, request.image);
 
         // Defense in Depth: Validate IDs and Structure  
         sessionData = this.validateSessionData(sessionData);
@@ -116,11 +117,24 @@ export class SessionGenerator {
 
     // --- Private Helpers ---
 
-    private static async generateTextSession(prompt: string): Promise<SessionData> {
+    private static async generateTextSession(prompt: string, imageBase64?: string): Promise<SessionData> {
         return this.retryPolicy.execute(async () => {
+            const parts: any[] = [{ text: prompt }];
+
+            if (imageBase64) {
+                // Remove header if present to get pure base64
+                const base64Data = imageBase64.split(',')[1] || imageBase64;
+                parts.push({
+                    inlineData: {
+                        mimeType: 'image/jpeg', // Assuming jpeg/png, API is flexible
+                        data: base64Data
+                    }
+                });
+            }
+
             const response = await ai.models.generateContent({
                 model: this.textModelId,
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                contents: [{ role: 'user', parts: parts }],
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: SESSION_SCHEMA,

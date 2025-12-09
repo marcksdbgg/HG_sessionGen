@@ -103,6 +103,7 @@ export interface SessionRequest {
   grado: string;
   area: string;
   prompt: string;
+  image?: string; // Base64 image data
 }
 
 export type FormatPackId = 'minedu' | 'compacto' | 'rural';
