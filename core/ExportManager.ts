@@ -2,24 +2,38 @@ import { SessionData } from "../types";
 import { LATEX_TEMPLATE } from "../formats";
 
 export class ExportManager {
-  private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
-    if (!items || items.length === 0) return "";
-    return "\\begin{itemize}[leftmargin=*,nosep] " + items.map(i => `${latexPrefix}${i}`).join(" ") + " \\end{itemize}";
+  private static escapeLatex(text: string): string {
+    if (!text) return "";
+    return text
+      .replace(/\\/g, '\\textbackslash{}')
+      .replace(/\{/g, '\\{')
+      .replace(/\}/g, '\\}')
+      .replace(/\$/g, '\\$')
+      .replace(/&/g, '\\&')
+      .replace(/#/g, '\\#')
+      .replace(/_/g, '\\_')
+      .replace(/%/g, '\\%')
+      .replace(/\^/g, '\\textasciicircum{}')
+      .replace(/~/g, '\\textasciitilde{}');
   }
 
-  private static formatSimpleList(items: string[] | undefined): string {
+  private static formatList(items: string[] | undefined, latexPrefix: string = "\\item "): string {
     if (!items || items.length === 0) return "";
-    return items.join(", ");
+    return "\\begin{itemize}[leftmargin=*,nosep] " + 
+      items.map(i => `${latexPrefix}${this.escapeLatex(i)}`).join(" ") + 
+      " \\end{itemize}";
   }
 
   static generateLatex(data: SessionData): string {
     let tex = LATEX_TEMPLATE;
 
+    const safe = (str: string) => this.escapeLatex(str);
+
     // Metadata
-    tex = tex.replace(/\[NOMBRE_SESION\]/g, data.sessionTitle);
-    tex = tex.replace(/\[AREA\]/g, data.area);
-    tex = tex.replace(/\[CICLO_GRADO\]/g, data.cycleGrade);
-    tex = tex.replace(/\[DOCENTE\]/g, data.teacherName);
+    tex = tex.replace(/\[NOMBRE_SESION\]/g, safe(data.sessionTitle));
+    tex = tex.replace(/\[AREA\]/g, safe(data.area));
+    tex = tex.replace(/\[CICLO_GRADO\]/g, safe(data.cycleGrade));
+    tex = tex.replace(/\[DOCENTE\]/g, safe(data.teacherName));
 
     // Inicio
     tex = tex.replace(/\[MOTIVACION\]/g, this.formatList(data.inicio.motivacion));

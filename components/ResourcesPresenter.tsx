@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { VirtualResources, GeneratedImage } from '../types';
+import React, { useState } from 'react';
+import { VirtualResources, GeneratedImage, Organizer } from '../types';
 import DiagramRenderer from './DiagramRenderer';
 import { Maximize2, X, Download, Image as ImageIcon, Layout, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -11,11 +11,15 @@ interface ResourcesPresenterProps {
 
 const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialImage }) => {
     const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(initialImage || null);
+    
+    // Support for multiple diagrams
+    const allOrganizers = [resources.organizer, ...(resources.diagrams || [])];
+    const [activeOrganizerIdx, setActiveOrganizerIdx] = useState(0);
 
     // Filter valid images
     const validImages = resources.images.filter(img => img.base64Data);
 
-    const handleNext = (e: React.MouseEvent) => {
+    const handleNextImage = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!selectedImage) return;
         const idx = validImages.findIndex(img => img.id === selectedImage.id);
@@ -23,12 +27,20 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
         setSelectedImage(validImages[nextIdx]);
     };
 
-    const handlePrev = (e: React.MouseEvent) => {
+    const handlePrevImage = (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!selectedImage) return;
         const idx = validImages.findIndex(img => img.id === selectedImage.id);
         const prevIdx = (idx - 1 + validImages.length) % validImages.length;
         setSelectedImage(validImages[prevIdx]);
+    };
+    
+    const handleNextOrganizer = () => {
+        setActiveOrganizerIdx(prev => (prev + 1) % allOrganizers.length);
+    };
+
+    const handlePrevOrganizer = () => {
+        setActiveOrganizerIdx(prev => (prev - 1 + allOrganizers.length) % allOrganizers.length);
     };
 
     const handleDownload = (e: React.MouseEvent) => {
@@ -63,12 +75,26 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                 
                 {/* Visual Organizer Section */}
                 <section>
-                    <div className="flex items-center gap-3 mb-6 text-emerald-400 border-b border-slate-800 pb-2">
-                        <Layout className="w-6 h-6" />
-                        <h3 className="font-bold text-xl uppercase tracking-wider">Organizador Visual</h3>
+                    <div className="flex items-center justify-between mb-6 text-emerald-400 border-b border-slate-800 pb-2">
+                         <div className="flex items-center gap-3">
+                            <Layout className="w-6 h-6" />
+                            <h3 className="font-bold text-xl uppercase tracking-wider">Organizadores Visuales</h3>
+                        </div>
+                        {allOrganizers.length > 1 && (
+                            <div className="flex items-center gap-2 text-slate-400 text-sm">
+                                <button onClick={handlePrevOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronLeft className="w-5 h-5"/></button>
+                                <span>{activeOrganizerIdx + 1} / {allOrganizers.length}</span>
+                                <button onClick={handleNextOrganizer} className="p-1 hover:text-white bg-slate-800 rounded-lg"><ChevronRight className="w-5 h-5"/></button>
+                            </div>
+                        )}
                     </div>
-                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-black/50 border-4 border-slate-800">
-                        <DiagramRenderer organizer={resources.organizer} className="min-h-[500px]" />
+                    <div className="bg-white rounded-xl overflow-hidden shadow-2xl shadow-black/50 border-4 border-slate-800 relative">
+                         {/* Pass a key to force re-render when switching organizers */}
+                        <DiagramRenderer 
+                            key={allOrganizers[activeOrganizerIdx].id} 
+                            organizer={allOrganizers[activeOrganizerIdx]} 
+                            className="min-h-[500px]" 
+                        />
                     </div>
                 </section>
 
@@ -150,13 +176,13 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         {validImages.length > 1 && (
                             <>
                                 <button 
-                                    onClick={handlePrev}
+                                    onClick={handlePrevImage}
                                     className="absolute left-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
                                 >
                                     <ChevronLeft className="w-8 h-8" />
                                 </button>
                                 <button 
-                                    onClick={handleNext}
+                                    onClick={handleNextImage}
                                     className="absolute right-4 p-4 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all backdrop-blur-sm hover:scale-110"
                                 >
                                     <ChevronRight className="w-8 h-8" />
