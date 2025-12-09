@@ -3,10 +3,9 @@ import { SessionData, GeneratedImage, ResourceUpdateCallback } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X, Loader2 } from 'lucide-react';
-import { MarkdownText, groupItemsByHeaders, ExternalResourceRenderer, isExternalResource } from '../utils/markdownParser';
+import { Clock, BookOpen } from 'lucide-react';
 import ResourcesPresenter from './ResourcesPresenter';
-import { fuzzyMatchImage } from '../utils/normalization';
+import { SessionNavbar, EditingBanner, MobileActionButtons, SessionSection, FichaCard } from './session';
 
 interface SessionResultProps {
     data: SessionData;
@@ -15,145 +14,10 @@ interface SessionResultProps {
     onResourceUpdate?: ResourceUpdateCallback;
 }
 
-// Tooltip component
-const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, children }) => (
-    <div className="relative group/tooltip">
-        {children}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-slate-900 text-white text-xs rounded-lg opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
-            {text}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
-        </div>
-    </div>
-);
-
 /**
- * Parses text to find {{imagen:Title}} tags and renders them as interactive buttons.
+ * SessionResult - Main component for displaying generated session content
+ * Refactored to use modular components
  */
-const SmartTextRenderer: React.FC<{
-    text: string;
-    images: GeneratedImage[] | undefined;
-    onOpenImage: (img: GeneratedImage) => void;
-}> = ({ text, images, onOpenImage }) => {
-    if (!text) return null;
-
-    // Regex to find {{imagen:Title}}
-    const parts = text.split(/(\{\{imagen:.*?\}\})/g);
-
-    return (
-        <span className="text-slate-700 leading-relaxed">
-            {parts.map((part, index) => {
-                const match = part.match(/\{\{imagen:(.*?)\}\}/);
-                if (match) {
-                    const titleRef = match[1].trim();
-                    // Refactor: Use fuzzy matching utility
-                    const imgMatch = fuzzyMatchImage(titleRef, images);
-
-                    // Find actual image object if ID matches
-                    const img = imgMatch ? images?.find(i => i.id === imgMatch.id) : undefined;
-
-                    if (img && (img.base64Data || img.isLoading)) {
-                        return (
-                            <button
-                                key={index}
-                                onClick={() => onOpenImage(img)}
-                                className={`inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 border rounded-md text-sm font-semibold transition-all align-middle cursor-pointer ${
-                                    img.isLoading 
-                                    ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-wait'
-                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:scale-105'
-                                }`}
-                            >
-                                {img.isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <ImageIcon className="w-3.5 h-3.5" />}
-                                <span className="underline decoration-indigo-300 underline-offset-2">
-                                    {img.title}
-                                    {img.isLoading && '...'}
-                                </span>
-                            </button>
-                        );
-                    } else {
-                        // Fallback if image not found or failed
-                        return <span key={index} className="text-slate-500 italic mx-1">[{titleRef}]</span>;
-                    }
-                }
-                return <MarkdownText key={index} text={part} />;
-            })}
-        </span>
-    );
-};
-
-const EditableList: React.FC<{
-    items: string[];
-    isEditing: boolean;
-    images?: GeneratedImage[];
-    onChange: (newItems: string[]) => void;
-    onOpenImage: (img: GeneratedImage) => void;
-}> = ({ items, isEditing, images, onChange, onOpenImage }) => {
-    if (isEditing) {
-        return (
-            <textarea
-                className="w-full p-3 text-sm border-2 border-emerald-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 min-h-[120px] bg-emerald-50/30 transition-all duration-200"
-                value={items.join('\n')}
-                onChange={(e) => onChange(e.target.value.split('\n'))}
-                placeholder="Escribe cada elemento en una línea separada..."
-            />
-        );
-    }
-    return (
-        <ul className="space-y-2">
-            {items.map((item, idx) => {
-                // Check if this is an external resource (VID_YT, IMG_URL, etc.)
-                if (isExternalResource(item)) {
-                    return (
-                        <li key={idx} className="list-none ml-0">
-                            <ExternalResourceRenderer item={item} />
-                        </li>
-                    );
-                }
-                // Regular item with potential {{imagen:}} tags
-                return (
-                    <li key={idx} className="flex items-start">
-                        <span className="mr-2 text-primary font-bold mt-1.5">•</span>
-                        <div className="flex-1">
-                            <SmartTextRenderer text={item} images={images} onOpenImage={onOpenImage} />
-                        </div>
-                    </li>
-                );
-            })}
-        </ul>
-    );
-};
-
-const SectionHeader: React.FC<{
-    title: string;
-    icon: React.ReactNode;
-    colorClass: string;
-    onRegenerate?: () => void;
-    isLoading?: boolean;
-    isEditing?: boolean;
-}> = ({ title, icon, colorClass, onRegenerate, isLoading, isEditing }) => (
-    <div className={`px-6 py-4 border-b flex items-center justify-between ${colorClass} ${isEditing ? 'ring-2 ring-emerald-400 ring-inset' : ''}`}>
-        <div className="flex items-center gap-2">
-            {icon}
-            <h3 className="font-bold text-lg">{title}</h3>
-        </div>
-        {onRegenerate && (
-            <Tooltip text={isEditing ? "Regenerar con IA" : "Activa el modo edición para regenerar"}>
-                <button
-                    onClick={isEditing ? onRegenerate : undefined}
-                    disabled={isLoading || !isEditing}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${isEditing
-                        ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow-md hover:shadow-lg transform hover:scale-105'
-                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                >
-                    <Sparkles className={`w-4 h-4 ${isLoading ? 'animate-pulse' : ''}`} />
-                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                    <span className="hidden sm:inline">{isLoading ? 'Regenerando...' : 'Regenerar'}</span>
-                </button>
-            </Tooltip>
-        )}
-    </div>
-);
-
 const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack, onResourceUpdate }) => {
     const [data, setData] = useState(initialData);
     const [isEditing, setIsEditing] = useState(false);
@@ -170,6 +34,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
         setData(initialData);
     }, [initialData]);
 
+    // === HANDLERS ===
     const handleCopyLatex = () => {
         const latex = ExportManager.generateLatex(data);
         copyToClipboard(latex);
@@ -210,11 +75,11 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
         }
     };
 
-    const updateSection = (section: keyof SessionData, field: string, value: any) => {
+    const updateSection = (section: keyof SessionData, field: string, value: string[]) => {
         setData(prev => ({
             ...prev,
             [section]: {
-                ...prev[section] as any,
+                ...(prev[section] as object),
                 [field]: value
             }
         }));
@@ -225,20 +90,56 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
         setShowPresentation(true);
     };
 
+    // === COMPUTED VALUES ===
     const isPrinting = printSection !== 'none';
     const showSession = !isPrinting || printSection === 'session';
     const showFichaAula = !isPrinting || printSection === 'ficha_aula';
     const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
 
-    // Check if images need recovery.
-    // Logic fix: It is ONLY "missing" if it has no data AND isn't currently loading.
     const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt && !img.isLoading);
-    
-    // Check if we have any images (loading or loaded) to show presentation button
-    const hasResources = data.resources && data.resources.images && data.resources.images.length > 0;
+    const hasResources = data.resources && (
+        (data.resources.images && data.resources.images.length > 0) ||
+        (data.resources.resources && data.resources.resources.length > 0)
+    );
+
+    // === SECTION CONFIGURATIONS ===
+    const sections = [
+        {
+            key: 'inicio',
+            title: 'Inicio',
+            icon: <Clock className="w-5 h-5" />,
+            colorClass: 'bg-blue-50 text-blue-800 border-blue-100',
+            regenerateInstructions: 'Cambia la motivación.',
+            subsections: [
+                { label: 'Motivación', items: data.inicio.motivacion, fieldKey: 'motivacion' },
+                { label: 'Saberes Previos', items: data.inicio.saberesPrevios, fieldKey: 'saberesPrevios' }
+            ]
+        },
+        {
+            key: 'desarrollo',
+            title: 'Desarrollo',
+            icon: <BookOpen className="w-5 h-5" />,
+            colorClass: 'bg-indigo-50 text-indigo-800 border-indigo-100',
+            regenerateInstructions: 'Genera estrategias más interactivas.',
+            subsections: [
+                { label: 'Estrategias', items: data.desarrollo.estrategias, fieldKey: 'estrategias' }
+            ]
+        },
+        {
+            key: 'cierre',
+            title: 'Cierre',
+            icon: <Clock className="w-5 h-5" />,
+            colorClass: 'bg-amber-50 text-amber-800 border-amber-100',
+            regenerateInstructions: 'Mejora las estrategias.',
+            subsections: [
+                { label: 'Estrategias de Cierre', items: data.cierre.estrategias, fieldKey: 'estrategias' }
+            ]
+        }
+    ];
 
     return (
         <>
+            {/* Presentation Modal */}
             {showPresentation && data.resources && (
                 <ResourcesPresenter
                     resources={data.resources}
@@ -253,236 +154,89 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
             <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''} ${showPresentation ? 'hidden' : ''}`}>
 
                 {/* Navbar */}
-                <div className="sticky top-0 z-20 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm no-print">
-                    <button onClick={onBack} className="flex items-center text-slate-600 hover:text-slate-900 font-medium">
-                        <ArrowLeft className="w-5 h-5 mr-1" /> Volver
-                    </button>
-                    <div className="flex items-center gap-3">
-                        {hasMissingImages && (
-                            <Tooltip text="Las imágenes no se guardaron en el historial para ahorrar espacio. Click para regenerarlas.">
-                                <button
-                                    onClick={handleRecoverImages}
-                                    disabled={!!regenerating}
-                                    className="hidden sm:flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all"
-                                >
-                                    <RefreshCw className={`w-4 h-4 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
-                                    <span>Restaurar Imágenes</span>
-                                </button>
-                            </Tooltip>
-                        )}
+                <SessionNavbar
+                    isEditing={isEditing}
+                    hasResources={!!hasResources}
+                    hasMissingImages={!!hasMissingImages}
+                    regenerating={regenerating}
+                    onBack={onBack}
+                    onToggleEditing={() => setIsEditing(!isEditing)}
+                    onShowPresentation={() => setShowPresentation(true)}
+                    onRecoverImages={handleRecoverImages}
+                    onPrint={handlePrint}
+                    onCopyLatex={handleCopyLatex}
+                />
 
-                        {hasResources && !hasMissingImages && (
-                            <Tooltip text="Ver todos los recursos (Organizador + Imágenes)">
-                                <button
-                                    onClick={() => setShowPresentation(true)}
-                                    className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-900 text-white hover:bg-black transition-all shadow-md"
-                                >
-                                    <MonitorPlay className="w-4 h-4" />
-                                    <span>Presentación</span>
-                                </button>
-                            </Tooltip>
-                        )}
-                        <Tooltip text={isEditing ? "Guardar cambios" : "Editar contenido de la sesión"}>
-                            <button
-                                onClick={() => setIsEditing(!isEditing)}
-                                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 transform hover:scale-105 shadow-md ${isEditing
-                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 ring-2 ring-emerald-300 ring-offset-2'
-                                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                                    }`}
-                            >
-                                {isEditing ? <Check className="w-5 h-5" /> : <Edit3 className="w-5 h-5" />}
-                                <span className="hidden sm:inline">{isEditing ? 'Guardar' : 'Editar'}</span>
-                            </button>
-                        </Tooltip>
-                        <div className="relative group">
-                            <button className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all">
-                                <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar</span>
-                            </button>
-                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 hidden group-hover:block z-30">
-                                <button onClick={() => handlePrint('session')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📄 PDF Sesión</button>
-                                <button onClick={() => handlePrint('ficha_aula')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📝 PDF Ficha Aula</button>
-                                <button onClick={() => handlePrint('ficha_casa')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">🏠 PDF Ficha Casa</button>
-                                <button onClick={handleCopyLatex} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
-                                    <span>LaTeX</span>
-                                    <FileJson className="w-3 h-3 text-slate-400" />
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {/* Editing Banner */}
+                {isEditing && <EditingBanner onExit={() => setIsEditing(false)} />}
 
-                {isEditing && (
-                    <div className="sticky top-[60px] z-10 mx-4 mt-4 no-print">
-                        <div className="bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white px-6 py-3 rounded-xl shadow-lg flex items-center justify-between animate-pulse">
-                            <div className="flex items-center gap-3">
-                                <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
-                                <span className="font-bold">✏️ Modo Edición Activo</span>
-                            </div>
-                            <button onClick={() => setIsEditing(false)} className="flex items-center gap-1 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"><X className="w-4 h-4" /> Salir</button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Mobile Presentation Button */}
-                {!showPresentation && hasResources && !hasMissingImages && (
-                    <div className="sm:hidden mx-4 mt-4">
-                        <button onClick={() => setShowPresentation(true)} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 text-white shadow-lg">
-                            <MonitorPlay className="w-5 h-5" />
-                            <span>Ver Recursos Virtuales</span>
-                        </button>
-                    </div>
-                )}
-
-                {/* Mobile Recovery Button */}
-                {hasMissingImages && (
-                    <div className="sm:hidden mx-4 mt-4">
-                        <button
-                            onClick={handleRecoverImages}
-                            disabled={!!regenerating}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-100 text-amber-800 border border-amber-200"
-                        >
-                            <RefreshCw className={`w-5 h-5 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
-                            <span>Restaurar Imágenes</span>
-                        </button>
-                    </div>
-                )}
+                {/* Mobile Action Buttons */}
+                <MobileActionButtons
+                    showPresentation={showPresentation}
+                    hasResources={!!hasResources}
+                    hasMissingImages={!!hasMissingImages}
+                    regenerating={regenerating}
+                    onShowPresentation={() => setShowPresentation(true)}
+                    onRecoverImages={handleRecoverImages}
+                />
 
                 <div className="max-w-3xl mx-auto px-4 py-6 print:px-0 print:py-0 print:max-w-none">
+                    {/* Session Content */}
                     <div className={showSession ? 'block' : 'hidden'}>
+                        {/* Session Header */}
                         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6 print:shadow-none print:border-none">
                             <h1 className="text-2xl font-bold text-slate-900 mb-2">{data.sessionTitle}</h1>
                             <p className="text-slate-500">{data.area} • {data.cycleGrade}</p>
                         </div>
 
+                        {/* Session Sections */}
                         <div className="space-y-6">
-                            {/* INICIO */}
-                            <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
-                                <SectionHeader
-                                    title="Inicio"
-                                    icon={<Clock className="w-5 h-5" />}
-                                    colorClass="bg-blue-50 text-blue-800 border-blue-100"
-                                    onRegenerate={() => handleRegenerate('inicio', 'Cambia la motivación.')}
-                                    isLoading={regenerating === 'inicio'}
+                            {sections.map(section => (
+                                <SessionSection
+                                    key={section.key}
+                                    title={section.title}
+                                    icon={section.icon}
+                                    colorClass={section.colorClass}
                                     isEditing={isEditing}
+                                    isLoading={regenerating === section.key}
+                                    subsections={section.subsections}
+                                    images={data.resources?.images}
+                                    resources={data.resources?.resources}
+                                    onRegenerate={() => handleRegenerate(section.key as keyof SessionData, section.regenerateInstructions)}
+                                    onUpdateField={(fieldKey, value) => updateSection(section.key as keyof SessionData, fieldKey, value)}
+                                    onOpenImage={handleOpenImage}
                                 />
-                                <div className="p-6 space-y-4">
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivación</span>
-                                        <EditableList
-                                            items={data.inicio.motivacion}
-                                            isEditing={isEditing}
-                                            images={data.resources?.images}
-                                            onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'motivacion', val)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saberes Previos</span>
-                                        <EditableList
-                                            items={data.inicio.saberesPrevios}
-                                            isEditing={isEditing}
-                                            images={data.resources?.images}
-                                            onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'saberesPrevios', val)}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* DESARROLLO */}
-                            <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
-                                <SectionHeader
-                                    title="Desarrollo"
-                                    icon={<BookOpen className="w-5 h-5" />}
-                                    colorClass="bg-indigo-50 text-indigo-800 border-indigo-100"
-                                    onRegenerate={() => handleRegenerate('desarrollo', 'Genera estrategias más interactivas.')}
-                                    isLoading={regenerating === 'desarrollo'}
-                                    isEditing={isEditing}
-                                />
-                                <div className="p-6">
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias</span>
-                                        <EditableList
-                                            items={data.desarrollo.estrategias}
-                                            isEditing={isEditing}
-                                            images={data.resources?.images}
-                                            onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('desarrollo', 'estrategias', val)}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* CIERRE */}
-                            <div className={`bg-white rounded-xl shadow-sm border overflow-hidden print:border-none print:shadow-none transition-all duration-300 ${isEditing ? 'border-emerald-300 ring-1 ring-emerald-200' : 'border-slate-200'}`}>
-                                <SectionHeader
-                                    title="Cierre"
-                                    icon={<Clock className="w-5 h-5" />}
-                                    colorClass="bg-amber-50 text-amber-800 border-amber-100"
-                                    onRegenerate={() => handleRegenerate('cierre', 'Mejora las estrategias.')}
-                                    isLoading={regenerating === 'cierre'}
-                                    isEditing={isEditing}
-                                />
-                                <div className="p-6">
-                                    <div className="space-y-2">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias de Cierre</span>
-                                        <EditableList
-                                            items={data.cierre.estrategias}
-                                            isEditing={isEditing}
-                                            images={data.resources?.images}
-                                            onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('cierre', 'estrategias', val)}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            ))}
                         </div>
                     </div>
 
-                    {/* Fichas logic remains same... */}
+                    {/* Fichas */}
                     <div className={`mt-8 ${showFichaAula ? 'block' : 'hidden'}`}>
-                        <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
-                            <div className="border-b border-blue-100 pb-4 mb-6">
-                                <h2 className="text-xl font-bold text-slate-900">Ficha de Aplicación: Aula</h2>
-                                <p className="text-sm text-slate-500">{data.fichas.aula.titulo}</p>
-                            </div>
-                            <div className="space-y-3">
-                                {groupItemsByHeaders(data.fichas.aula.items).map((group, groupIdx) => (
-                                    <div key={groupIdx} className="rounded-xl overflow-hidden bg-slate-50 p-4 border border-slate-100">
-                                        {group.header && <div className="font-bold text-blue-600 mb-2">{group.header}</div>}
-                                        {group.items.map((item, i) => <div key={i} className="mb-2"><MarkdownText text={item} /></div>)}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <FichaCard
+                            type="aula"
+                            titulo={data.fichas.aula.titulo}
+                            items={data.fichas.aula.items}
+                        />
                     </div>
 
                     <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
-                        <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
-                            <div className="border-b border-amber-100 pb-4 mb-6">
-                                <h2 className="text-xl font-bold text-slate-900">Ficha de Extensión: Casa</h2>
-                                <p className="text-sm text-slate-500">{data.fichas.casa.titulo}</p>
-                            </div>
-                            <div className="space-y-3">
-                                {groupItemsByHeaders(data.fichas.casa.items).map((group, groupIdx) => (
-                                    <div key={groupIdx} className="rounded-xl overflow-hidden bg-slate-50 p-4 border border-slate-100">
-                                        {group.header && <div className="font-bold text-amber-600 mb-2">{group.header}</div>}
-                                        {group.items.map((item, i) => <div key={i} className="mb-2"><MarkdownText text={item} /></div>)}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <FichaCard
+                            type="casa"
+                            titulo={data.fichas.casa.titulo}
+                            items={data.fichas.casa.items}
+                        />
                     </div>
                 </div>
 
+                {/* Print Styles */}
                 <style>{`
-            @media print {
-                body { background: white; }
-                .no-print { display: none !important; }
-                .print-mode .hidden { display: none !important; }
-                .print-mode .block { display: block !important; }
-            }
-        `}</style>
+                    @media print {
+                        body { background: white; }
+                        .no-print { display: none !important; }
+                        .print-mode .hidden { display: none !important; }
+                        .print-mode .block { display: block !important; }
+                    }
+                `}</style>
             </div>
         </>
     );
