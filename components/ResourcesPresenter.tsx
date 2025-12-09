@@ -5,7 +5,8 @@ import {
     AIImageResource,
     DiagramResource,
     ExternalVideoResource,
-    ExternalImageResource
+    ExternalImageResource,
+    ResourceMoment
 } from '../types';
 import DiagramRenderer from './DiagramRenderer';
 import ResourceCard from './ui/ResourceCard';
@@ -50,7 +51,25 @@ const getYouTubeVideoId = (url: string): string | null => {
  */
 const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialResourceId }) => {
     // Get all polymorphic resources
-    const allResources = resources.resources || [];
+    let allResources = resources.resources || [];
+
+    // COMPATIBILITY: Merge legacy images if present
+    if (resources.images && resources.images.length > 0) {
+        const legacyImages: AIImageResource[] = resources.images
+            .filter(img => !allResources.some(r => r.id === img.id)) // Avoid duplicates
+            .map(img => ({
+                id: img.id,
+                type: 'AI_IMAGE',
+                title: img.title,
+                moment: img.moment as ResourceMoment,
+                status: img.error ? 'error' : (img.isLoading ? 'loading' : (img.base64Data ? 'ready' : 'pending')),
+                error: img.error,
+                generationPrompt: img.prompt,
+                base64Data: img.base64Data
+            }));
+
+        allResources = [...allResources, ...legacyImages];
+    }
 
     // Group resources by type
     const aiImages = allResources.filter((r): r is AIImageResource => r.type === 'AI_IMAGE' && r.status === 'ready');

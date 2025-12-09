@@ -68,12 +68,13 @@ El sistema DiagramRenderer soporta los siguientes tipos con estilos específicos
        Rama2
          "Subrama 2.1"
 
-5. RESTRICCIONES:
-   ✗ NO usar HTML, links, scripts ni etiquetas peligrosas
-   ✗ NO usar caracteres especiales sin escapar (paréntesis, corchetes)
-   ✓ Nodos cortos y legibles (máx 4-5 palabras)
-   ✓ Usar saltos de línea (\\n literal) entre nodos
-   ✓ Para mindmap: usar indentación con 2 espacios
+5. RESTRICCIONES CRÍTICAS (PARA EVITAR ERRORES DE PARSEO):
+   ✗ NO incluyas el título del diagrama como texto dentro del código.
+   ✗ NO uses texto suelto (sin nodos). Todo texto debe estar en: A["Texto"].
+   ✗ NO uses comas para separar nodos en 'graph'. Usa SALTOS DE LÍNEA.
+   ✗ NO uses caracteres especiales sin escapar dentro de las comillas.
+   ✓ Ejemplo INCORRECTO: Diagrama de Venn: A, B
+   ✓ Ejemplo CORRECTO: A["Conjunto A"] --- B["Conjunto B"]
 `,
 
   outputContract: `
