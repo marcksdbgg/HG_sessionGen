@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import Home from './components/Home';
 import SessionResult from './components/SessionResult';
-import { SessionData, ResourceUpdateCallback, GeneratedImage, Organizer } from './types';
+import { SessionData, ResourceUpdateCallback, GeneratedImage, Organizer, Resource } from './types';
 
 type ViewState = 'home' | 'result';
 
@@ -18,19 +18,19 @@ function App() {
       // If state is not yet hydrated but ref exists, use ref as base
       // This handles cases where callback fires before React finishes setting initial state
       const baseSession = prev || sessionRef.current;
-      
+
       if (!baseSession) return prev;
 
       let nextSession = { ...baseSession };
 
       if (type === 'image') {
         const img = resource as GeneratedImage;
-        const updatedImages = nextSession.resources.images.map(existing =>
+        const updatedImages = nextSession.resources.images?.map(existing =>
           existing.id === id ? img : existing
-        );
+        ) || [];
         nextSession.resources = {
-            ...nextSession.resources,
-            images: updatedImages
+          ...nextSession.resources,
+          images: updatedImages
         };
       }
 
@@ -41,10 +41,10 @@ function App() {
         const updatedDiagrams = diagExists
           ? existingDiagrams.map(existing => existing.id === id ? diag : existing)
           : [...existingDiagrams, diag];
-        
+
         nextSession.resources = {
-            ...nextSession.resources,
-            diagrams: updatedDiagrams
+          ...nextSession.resources,
+          diagrams: updatedDiagrams
         };
       }
 
@@ -59,6 +59,21 @@ function App() {
         };
       }
 
+      else if (type === 'resource') {
+        const res = resource as Resource;
+        const currentResources = nextSession.resources.resources || [];
+
+        // Update the specific resource in the array
+        const updatedResources = currentResources.map(r =>
+          r.id === id ? res : r
+        );
+
+        nextSession.resources = {
+          ...nextSession.resources,
+          resources: updatedResources
+        };
+      }
+
       // Update Ref to keep it in sync for subsequent fast updates
       sessionRef.current = nextSession;
       return nextSession;
@@ -70,10 +85,6 @@ function App() {
     setCurrentSession(data);
     setView('result');
     window.scrollTo(0, 0);
-
-    // The onResourceUpdate callback from Home is already wired to SessionGenerator
-    // We just need to ensure our handleResourceUpdate is called
-    // This is handled by the ref pattern in Home.tsx
   };
 
   const handleBack = () => {
