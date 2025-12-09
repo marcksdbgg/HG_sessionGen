@@ -14,13 +14,13 @@ export interface FichaContent {
   items: string[];
 }
 
-export type OrganizerType = 
-  | 'mapa-conceptual' 
-  | 'mapa-mental' 
-  | 'espina-pescado' 
-  | 'cuadro-sinoptico' 
-  | 'linea-tiempo' 
-  | 'diagrama-flujo' 
+export type OrganizerType =
+  | 'mapa-conceptual'
+  | 'mapa-mental'
+  | 'espina-pescado'
+  | 'cuadro-sinoptico'
+  | 'linea-tiempo'
+  | 'diagrama-flujo'
   | 'diagrama-venn'
   | 'cruz-esquematica'
   | 'cuadro-comparativo'
@@ -44,6 +44,7 @@ export interface GeneratedImage {
   moment: 'Inicio' | 'Desarrollo' | 'Cierre';
   base64Data?: string; // The actual generated image
   isLoading?: boolean;
+  error?: string; // Error message if generation failed
 }
 
 export interface VirtualResources {
@@ -51,6 +52,13 @@ export interface VirtualResources {
   images: GeneratedImage[];
   diagrams?: Organizer[]; // Refactor: Support for additional diagrams
 }
+
+// Callback for progressive resource updates (non-blocking flow)
+export type ResourceUpdateCallback = (
+  type: 'image' | 'diagram',
+  resourceId: string,
+  resource: GeneratedImage | Organizer
+) => void;
 
 export interface SessionData {
   sessionTitle: string;
