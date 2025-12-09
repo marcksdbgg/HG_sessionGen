@@ -20,7 +20,8 @@ import {
     ChevronLeft,
     ChevronRight,
     Download,
-    ExternalLink
+    ExternalLink,
+    Search
 } from 'lucide-react';
 
 interface ResourcesPresenterProps {
@@ -29,11 +30,9 @@ interface ResourcesPresenterProps {
     initialResourceId?: string | null;
 }
 
-/**
- * Extract YouTube video ID from URL
- */
 const getYouTubeVideoId = (url: string): string | null => {
     if (!url) return null;
+    if (url.includes('results?search_query')) return null;
     const cleanUrl = url.trim();
     const patterns = [
         /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
@@ -46,26 +45,16 @@ const getYouTubeVideoId = (url: string): string | null => {
     return null;
 };
 
-/**
- * Check if URL is a Google Grounding/Vertex redirect (which breaks img tags)
- */
-const isGroundingRedirect = (url: string): boolean => {
-    return url.includes('vertexaisearch.cloud.google.com') ||
-        url.includes('google.com/grounding');
+const isSearchUrl = (url: string): boolean => {
+    return url.includes('google.com/search') || url.includes('youtube.com/results');
 };
 
-/**
- * ResourcesPresenter - Modern gallery for displaying all resource types
- * Reads from polymorphic resources.resources[] array
- */
 const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onClose, initialResourceId }) => {
-    // Get all polymorphic resources
     let allResources = resources.resources || [];
 
-    // COMPATIBILITY: Merge legacy images if present
     if (resources.images && resources.images.length > 0) {
         const legacyImages: AIImageResource[] = resources.images
-            .filter(img => !allResources.some(r => r.id === img.id)) // Avoid duplicates
+            .filter(img => !allResources.some(r => r.id === img.id))
             .map(img => ({
                 id: img.id,
                 type: 'AI_IMAGE',
@@ -80,21 +69,17 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
         allResources = [...allResources, ...legacyImages];
     }
 
-    // Group resources by type
     const aiImages = allResources.filter((r): r is AIImageResource => r.type === 'AI_IMAGE' && r.status === 'ready');
     const diagrams = allResources.filter((r): r is DiagramResource => r.type === 'DIAGRAM' && r.status === 'ready');
     const videos = allResources.filter((r): r is ExternalVideoResource => r.type === 'VIDEO_SEARCH' && r.status === 'ready');
     const externalImages = allResources.filter((r): r is ExternalImageResource => r.type === 'IMAGE_SEARCH' && r.status === 'ready');
 
-    // All resources for grid display (including loading/error)
     const displayResources = allResources;
 
-    // Selected resource for fullscreen view
     const [selectedResource, setSelectedResource] = useState<Resource | null>(
         initialResourceId ? allResources.find(r => r.id === initialResourceId) || null : null
     );
 
-    // Diagram navigation (if multiple)
     const [activeDiagramIdx, setActiveDiagramIdx] = useState(0);
 
     const handleResourceClick = (resource: Resource) => {
@@ -124,7 +109,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
 
     const handleDownload = () => {
         if (!selectedResource) return;
-
         if (selectedResource.type === 'AI_IMAGE' && (selectedResource as AIImageResource).base64Data) {
             const link = document.createElement('a');
             link.href = (selectedResource as AIImageResource).base64Data!;
@@ -137,14 +121,12 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
         }
     };
 
-    // Count ready resources
     const readyCount = allResources.filter(r => r.status === 'ready').length;
     const loadingCount = allResources.filter(r => r.status === 'loading' || r.status === 'pending').length;
     const errorCount = allResources.filter(r => r.status === 'error').length;
 
     return (
         <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto animate-in fade-in duration-300">
-            {/* Header */}
             <div className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur-lg border-b border-slate-800 px-4 md:px-6 py-4">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -164,7 +146,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         </div>
                     </div>
 
-                    {/* Quick filters */}
                     <div className="hidden md:flex items-center gap-2 text-sm">
                         {aiImages.length > 0 && (
                             <span className="px-2 py-1 bg-indigo-500/20 text-indigo-400 rounded-lg flex items-center gap-1">
@@ -190,7 +171,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                 </div>
             </div>
 
-            {/* Main Content */}
             <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
                 {displayResources.length === 0 ? (
                     <div className="text-center py-20">
@@ -202,7 +182,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                     </div>
                 ) : (
                     <>
-                        {/* Diagrams Section - Special layout */}
                         {diagrams.length > 0 && (
                             <section className="mb-12">
                                 <div className="flex items-center gap-3 mb-6 text-emerald-400">
@@ -243,7 +222,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                             </section>
                         )}
 
-                        {/* Resource Grid */}
                         <section>
                             <div className="flex items-center gap-3 mb-6 text-sky-400">
                                 <ImageIcon className="w-6 h-6" />
@@ -251,7 +229,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                                 {displayResources
-                                    .filter(r => r.type !== 'DIAGRAM') // Diagrams shown above
+                                    .filter(r => r.type !== 'DIAGRAM')
                                     .map((resource, idx) => (
                                         <div
                                             key={resource.id}
@@ -269,10 +247,8 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                 )}
             </div>
 
-            {/* Fullscreen Resource Viewer */}
             {selectedResource && (
                 <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col animate-in fade-in duration-200">
-                    {/* Viewer Header */}
                     <div className="flex items-center justify-between p-4 bg-gradient-to-b from-black to-transparent">
                         <h3 className="text-lg font-bold text-white truncate">{selectedResource.title}</h3>
                         <div className="flex items-center gap-2">
@@ -293,9 +269,7 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         </div>
                     </div>
 
-                    {/* Main Content */}
                     <div className="flex-1 flex items-center justify-center p-4 relative">
-                        {/* Navigation */}
                         {allResources.filter(r => r.status === 'ready').length > 1 && (
                             <>
                                 <button
@@ -313,7 +287,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                             </>
                         )}
 
-                        {/* Resource Content */}
                         {selectedResource.type === 'AI_IMAGE' && (selectedResource as AIImageResource).base64Data && (
                             <img
                                 src={(selectedResource as AIImageResource).base64Data}
@@ -323,18 +296,18 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         )}
 
                         {selectedResource.type === 'IMAGE_SEARCH' && (selectedResource as ExternalImageResource).url && (
-                            isGroundingRedirect((selectedResource as ExternalImageResource).url!) ? (
+                            isSearchUrl((selectedResource as ExternalImageResource).url!) ? (
                                 <div className="flex flex-col items-center justify-center text-center p-8 bg-slate-900 rounded-xl border border-slate-700 max-w-md">
-                                    <ExternalLink className="w-16 h-16 text-sky-400 mb-4" />
-                                    <h4 className="text-xl font-bold text-white mb-2">Imagen Externa</h4>
-                                    <p className="text-slate-400 mb-6">Esta imagen se encuentra en un sitio externo protegido.</p>
+                                    <Search className="w-16 h-16 text-sky-400 mb-4" />
+                                    <h4 className="text-xl font-bold text-white mb-2">Búsqueda Externa</h4>
+                                    <p className="text-slate-400 mb-6">Explora imágenes relacionadas con este tema.</p>
                                     <a
                                         href={(selectedResource as ExternalImageResource).url}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="px-6 py-3 bg-sky-600 text-white rounded-lg hover:bg-sky-500 transition font-bold"
                                     >
-                                        Ver imagen original
+                                        Ver resultados en Google
                                     </a>
                                 </div>
                             ) : (
@@ -358,6 +331,8 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                                 ) : (
                                     <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 rounded-lg">
                                         <MonitorPlay className="w-16 h-16 text-red-400 mb-4" />
+                                        <h4 className="text-xl font-bold text-white mb-2">Video Educativo</h4>
+                                        <p className="text-slate-400 mb-6">Ver este video en YouTube</p>
                                         <a
                                             href={(selectedResource as ExternalVideoResource).url}
                                             target="_blank"
@@ -389,7 +364,6 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                         )}
                     </div>
 
-                    {/* Footer */}
                     <div className="p-4 bg-gradient-to-t from-black to-transparent text-center">
                         <span className="text-slate-400 text-sm px-4 py-2 bg-black/50 rounded-full">
                             {selectedResource.moment} • {selectedResource.type.replace('_', ' ')}

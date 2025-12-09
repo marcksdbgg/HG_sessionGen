@@ -14,7 +14,8 @@ import {
     Loader2,
     AlertCircle,
     Maximize2,
-    RefreshCw
+    RefreshCw,
+    Search
 } from 'lucide-react';
 
 interface ResourceCardProps {
@@ -27,10 +28,9 @@ interface ResourceCardProps {
  */
 const getYouTubeVideoId = (url: string): string | null => {
     if (!url) return null;
+    if (url.includes('results?search_query')) return null; // It's a search URL
 
-    // Clean URL first
     const cleanUrl = url.trim();
-
     const patterns = [
         /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
         /youtube\.com\/.*[?&]v=([^&\n?#]+)/
@@ -39,19 +39,14 @@ const getYouTubeVideoId = (url: string): string | null => {
     for (const pattern of patterns) {
         const match = cleanUrl.match(pattern);
         if (match && match[1]) {
-            // Check length to ensure it looks like an ID (usually 11 chars)
             if (match[1].length >= 10) return match[1];
         }
     }
     return null;
 };
 
-/**
- * Check if URL is a Google Grounding/Vertex redirect (which breaks img tags)
- */
-const isGroundingRedirect = (url: string): boolean => {
-    return url.includes('vertexaisearch.cloud.google.com') ||
-        url.includes('google.com/grounding');
+const isSearchUrl = (url: string): boolean => {
+    return url.includes('google.com/search') || url.includes('youtube.com/results');
 };
 
 /**
@@ -121,12 +116,12 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
                 const video = resource as ExternalVideoResource;
                 if (video.url) {
                     const videoId = getYouTubeVideoId(video.url);
-                    // For YouTube videos, show thumbnail
-                    if (videoId) {
+                    // For valid YouTube videos, show thumbnail
+                    if (videoId && !imageError) {
                         return (
                             <div className="aspect-video relative overflow-hidden bg-black">
                                 <img
-                                    src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`}
+                                    src={`https://img.youtube.com/vi/${videoId}/mqdefault.jpg`}
                                     alt={video.title}
                                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                                     onError={() => setImageError(true)}
@@ -139,11 +134,12 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
                             </div>
                         );
                     }
-                    // For other video URLs (or fallback), show link card
+
+                    // Fallback: Search URL or Thumbnail Error
                     return (
                         <div className="aspect-video flex flex-col items-center justify-center bg-gradient-to-br from-red-900/30 to-rose-900/30">
-                            <MonitorPlay className="w-12 h-12 text-red-400 mb-2" />
-                            <span className="text-white text-sm">Ver Video</span>
+                            <Search className="w-12 h-12 text-red-400 mb-2" />
+                            <span className="text-white text-sm font-medium">Ver resultados en YouTube</span>
                         </div>
                     );
                 }
@@ -153,17 +149,17 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
             case 'IMAGE_SEARCH': {
                 const img = resource as ExternalImageResource;
 
-                // If it's a redirect/grounding URL or explicitly errored, show "Link" view
-                if (img.url && isGroundingRedirect(img.url)) {
+                // If it's a search URL (fallback), show search card
+                if (img.url && isSearchUrl(img.url)) {
                     return (
                         <div className="aspect-video flex flex-col items-center justify-center bg-slate-800/50">
-                            <ExternalLink className="w-8 h-8 text-sky-400 mb-2" />
-                            <span className="text-sky-400 text-sm font-medium">Ver imagen externa</span>
-                            <span className="text-slate-500 text-xs mt-1 text-center px-4">Fuente externa</span>
+                            <Search className="w-8 h-8 text-sky-400 mb-2" />
+                            <span className="text-sky-400 text-sm font-medium">Buscar en Google Imágenes</span>
                         </div>
                     );
                 }
 
+                // Try to render direct image
                 if (img.url && !imageError) {
                     return (
                         <div className="aspect-video relative overflow-hidden bg-slate-900">
@@ -182,11 +178,12 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
                         </div>
                     );
                 }
-                // Fallback for error or no URL
+
+                // Fallback
                 return (
                     <div className="aspect-video flex flex-col items-center justify-center bg-slate-800/50">
                         <ImageIcon className="w-8 h-8 text-slate-500 mb-2" />
-                        <span className="text-slate-400 text-sm">Imagen externa</span>
+                        <span className="text-slate-400 text-sm">Ver imagen externa</span>
                     </div>
                 );
             }
@@ -206,7 +203,6 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
             }
         }
 
-        // Fallback
         return (
             <div className="aspect-video flex items-center justify-center bg-slate-800/50">
                 <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
@@ -223,21 +219,14 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ resource, onClick }) => {
                 animate-in fade-in slide-in-from-bottom-4 duration-500
             `}
         >
-            {/* Type Badge */}
             <div className={`absolute top-3 left-3 z-10 px-2 py-1 rounded-lg ${typeColor.badge} text-white text-xs font-bold flex items-center gap-1 shadow-lg`}>
                 {typeColor.icon}
                 <span className="hidden sm:inline">{resource.type.replace('_', ' ')}</span>
             </div>
-
-            {/* Moment Badge */}
             <div className="absolute top-3 right-3 z-10 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-white text-xs font-medium">
                 {resource.moment}
             </div>
-
-            {/* Content */}
             {renderContent()}
-
-            {/* Footer */}
             <div className="p-4 bg-slate-900">
                 <h3 className="font-bold text-white text-lg leading-tight mb-1 group-hover:text-sky-400 transition-colors line-clamp-2">
                     {resource.title}

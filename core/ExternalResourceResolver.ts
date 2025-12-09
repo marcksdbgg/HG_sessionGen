@@ -1,6 +1,28 @@
 import { ai } from "../services/geminiService";
 
 export class ExternalResourceResolver {
+
+  /**
+   * Helper: Validates if an image URL is loadable.
+   * Used to check YouTube thumbnails to verify if video exists.
+   */
+  private static validateImageLoad(url: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(false);
+      img.src = url;
+    });
+  }
+
+  /**
+   * Extract YouTube ID from URL
+   */
+  private static getYouTubeId(url: string): string | null {
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/);
+    return match ? match[1] : null;
+  }
+
   /**
    * Resolves a search query to a real URL using Google Search Grounding.
    */
@@ -8,8 +30,8 @@ export class ExternalResourceResolver {
     try {
       // Enhanced prompt to ask for direct URLs in text
       const prompt = type === 'video'
-        ? `Busca en YouTube un video educativo sobre: "${query}". Responde con el Título exacto y la URL directa (youtube.com). Prioriza videos cortos y oficiales.`
-        : `Busca una imagen educativa real de: "${query}". Responde con el Título y la URL directa de la imagen (jpg/png) si es posible. Si no, la URL de la página.`;
+        ? `Busca en YouTube un video educativo sobre: "${query}". Responde con el Título exacto y la URL directa (youtube.com). Prioriza videos cortos y oficiales. NO inventes URLs.`
+        : `Busca una imagen educativa real de: "${query}". Responde con el Título y la URL directa de la imagen (jpg/png). Evita URLs de redirección.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
@@ -19,55 +41,68 @@ export class ExternalResourceResolver {
         }
       });
 
-      // 1. Try to extract from Grounding Metadata
-      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-      let groundingUrl = null;
-      let groundingTitle = null;
-
-      if (chunks && chunks.length > 0) {
-        const webChunk = chunks.find(c => c.web?.uri);
-        if (webChunk?.web) {
-          groundingUrl = webChunk.web.uri;
-          groundingTitle = webChunk.web.title;
-        }
-      }
-
-      // 2. Try to extract from Text Response (often has better/direct links)
+      // 1. Extract potential URLs from text response (preferred over grounding chunks for images)
       const text = response.text || "";
-      // Regex to find http/https URLs
       const urlMatches = text.matchAll(/https?:\/\/[^\s)"]+/g);
       const urlsInText = Array.from(urlMatches).map(m => m[0]);
 
-      // Preference logic:
-      // If we have a YouTube URL in text, use it (avoid grounding redirects for YT)
+      // --- VIDEO RESOLUTION STRATEGY ---
       if (type === 'video') {
-        const ytUrl = urlsInText.find(u => u.includes('youtube.com') || u.includes('youtu.be'));
-        if (ytUrl) return { title: groundingTitle || query, url: ytUrl };
-      }
+        // Try to find a valid YouTube link
+        for (const url of urlsInText) {
+          const videoId = this.getYouTubeId(url);
+          if (videoId) {
+            // VALIDATION: Check if thumbnail exists
+            const thumbUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+            const isValid = await this.validateImageLoad(thumbUrl);
 
-      // If we have a direct image extension in text, use it
-      if (type === 'image') {
-        const imgUrl = urlsInText.find(u => /\.(jpg|jpeg|png|webp)$/i.test(u));
-        if (imgUrl) return { title: groundingTitle || query, url: imgUrl };
-      }
+            if (isValid) {
+              return { title: query, url: url };
+            } else {
+              console.warn(`[Resolver] Found dead YouTube link: ${url}`);
+            }
+          }
+        }
 
-      // Fallback to grounding URL if available
-      if (groundingUrl) {
+        // Fallback: Return a YouTube Search URL
+        // This guarantees the user finds something even if specific video is dead
         return {
-          title: groundingTitle || query,
-          url: groundingUrl
+          title: query,
+          url: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
         };
       }
 
-      // Last fallback: first URL in text
-      if (urlsInText.length > 0) {
-        return { title: query, url: urlsInText[0] };
+      // --- IMAGE RESOLUTION STRATEGY ---
+      if (type === 'image') {
+        // Filter out bad grounding URLs
+        const validUrls = urlsInText.filter(u =>
+          !u.includes('vertexaisearch') &&
+          !u.includes('google.com/grounding') &&
+          /\.(jpg|jpeg|png|webp)$/i.test(u)
+        );
+
+        if (validUrls.length > 0) {
+          // Verify the first promising image
+          const isValid = await this.validateImageLoad(validUrls[0]);
+          if (isValid) {
+            return { title: query, url: validUrls[0] };
+          }
+        }
+
+        // Fallback: Return Google Images Search URL
+        // Much better than a broken icon
+        return {
+          title: query,
+          url: `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`
+        };
       }
 
       return null;
     } catch (e) {
       console.warn(`External resource resolution failed for ${query}`, e);
-      return null;
+      // Ultimate fallback
+      const baseUrl = type === 'video' ? 'https://www.youtube.com/results?search_query=' : 'https://www.google.com/search?tbm=isch&q=';
+      return { title: query, url: `${baseUrl}${encodeURIComponent(query)}` };
     }
   }
 }
