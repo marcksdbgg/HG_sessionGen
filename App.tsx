@@ -15,54 +15,57 @@ function App() {
   // Handle progressive resource updates from background generation
   const handleResourceUpdate: ResourceUpdateCallback = useCallback((type, id, resource) => {
     setCurrentSession(prev => {
-      if (!prev) return prev;
+      // If state is not yet hydrated but ref exists, use ref as base
+      // This handles cases where callback fires before React finishes setting initial state
+      const baseSession = prev || sessionRef.current;
+      
+      if (!baseSession) return prev;
+
+      let nextSession = { ...baseSession };
 
       if (type === 'image') {
         const img = resource as GeneratedImage;
-        const updatedImages = prev.resources.images.map(existing =>
+        const updatedImages = nextSession.resources.images.map(existing =>
           existing.id === id ? img : existing
         );
-        return {
-          ...prev,
-          resources: {
-            ...prev.resources,
+        nextSession.resources = {
+            ...nextSession.resources,
             images: updatedImages
-          }
         };
       }
 
-      if (type === 'diagram') {
+      else if (type === 'diagram') {
         const diag = resource as Organizer;
-        const existingDiagrams = prev.resources.diagrams || [];
+        const existingDiagrams = nextSession.resources.diagrams || [];
         const diagExists = existingDiagrams.some(d => d.id === id);
         const updatedDiagrams = diagExists
           ? existingDiagrams.map(existing => existing.id === id ? diag : existing)
           : [...existingDiagrams, diag];
-        return {
-          ...prev,
-          resources: {
-            ...prev.resources,
+        
+        nextSession.resources = {
+            ...nextSession.resources,
             diagrams: updatedDiagrams
-          }
         };
       }
 
-      if (type === 'section_update') {
+      else if (type === 'section_update') {
         const update = resource as { section: keyof SessionData, field: string, value: string[] };
-        return {
-          ...prev,
+        nextSession = {
+          ...nextSession,
           [update.section]: {
-            ...prev[update.section] as any,
+            ...nextSession[update.section] as any,
             [update.field]: update.value
           }
         };
       }
 
-      return prev;
+      // Update Ref to keep it in sync for subsequent fast updates
+      sessionRef.current = nextSession;
+      return nextSession;
     });
   }, []);
 
-  const handleSessionGenerated = (data: SessionData, onResourceUpdate: ResourceUpdateCallback) => {
+  const handleSessionGenerated = (data: SessionData) => {
     sessionRef.current = data;
     setCurrentSession(data);
     setView('result');
@@ -83,9 +86,8 @@ function App() {
     <>
       {view === 'home' && (
         <Home
-          onSessionGenerated={(data, callback) => {
-            handleSessionGenerated(data, callback);
-          }}
+          onSessionGenerated={handleSessionGenerated}
+          onResourceUpdate={handleResourceUpdate}
         />
       )}
       {view === 'result' && currentSession && (
