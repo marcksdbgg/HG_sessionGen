@@ -16,8 +16,8 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
     const allOrganizers = [resources.organizer, ...(resources.diagrams || [])];
     const [activeOrganizerIdx, setActiveOrganizerIdx] = useState(0);
 
-    // Filter valid images
-    const validImages = resources.images.filter(img => img.base64Data);
+    // Filter valid images with safe fallback for undefined
+    const validImages = (resources.images || []).filter(img => img.base64Data);
 
     const handleNextImage = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -113,8 +113,8 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
                                 <div
                                     key={img.id}
                                     className={`group relative bg-slate-900 rounded-2xl overflow-hidden border transition-all duration-300 shadow-xl flex flex-col ${img.base64Data
-                                            ? 'border-slate-800 hover:border-sky-500 hover:shadow-sky-500/20 cursor-pointer'
-                                            : 'border-slate-700 opacity-70'
+                                        ? 'border-slate-800 hover:border-sky-500 hover:shadow-sky-500/20 cursor-pointer'
+                                        : 'border-slate-700 opacity-70'
                                         }`}
                                     onClick={() => img.base64Data && setSelectedImage(img)}
                                 >
@@ -138,8 +138,8 @@ const ResourcesPresenter: React.FC<ResourcesPresenterProps> = ({ resources, onCl
 
                                         <div className="absolute bottom-3 left-3">
                                             <span className={`text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wide ${img.moment === 'Inicio' ? 'bg-blue-600/90 text-white' :
-                                                    img.moment === 'Desarrollo' ? 'bg-indigo-600/90 text-white' :
-                                                        'bg-amber-600/90 text-white'
+                                                img.moment === 'Desarrollo' ? 'bg-indigo-600/90 text-white' :
+                                                    'bg-amber-600/90 text-white'
                                                 }`}>
                                                 {img.moment}
                                             </span>

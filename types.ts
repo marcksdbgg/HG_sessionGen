@@ -174,6 +174,7 @@ export interface SessionRequest {
   grado: string;
   area: string;
   prompt: string;
+  image?: string;
 }
 
 export type FormatPackId = 'minedu';
