@@ -37,18 +37,17 @@ export default {
     "Todo título de imagen en resources.images debe coincidir EXACTAMENTE con el título usado en {{imagen:Título Exacto}}.",
     "No uses sinónimos ni variaciones de artículos en esos títulos.",
 
-    // URLs
-    "No inventes URLs.",
-    "Solo incluye un enlace si estás 100% seguro de que existe y es correcto.",
-    "Si no estás seguro, reemplaza el link por una descripción + un prompt de IA o una sugerencia de búsqueda sin URL.",
+    // URLs y Recursos Externos
+    "Si el docente pide un recurso externo (video/foto) y NO tienes la URL exacta:",
+    "Usa el formato: 'VID_YT: Título :: SEARCH: consulta' o 'IMG_URL: Título :: SEARCH: consulta'.",
+    "NO inventes URLs falsas. Delega la búsqueda al sistema usando 'SEARCH:'.",
 
     // Materiales por sección: convención para el segundo flujo
     "En inicio.materiales, desarrollo.materiales, cierre.materiales y tareaCasa.materiales usa estos prefijos cuando aplique:",
     "1) 'IMG_GEN: <Título Exacto>' para referenciar una imagen a generar (debe existir en resources.images).",
-    "2) 'IMG_URL: <Título> :: <URL>' solo si la URL es real y segura.",
-    "3) 'VID_YT: <Título> :: <URL>' solo si la URL es real y segura.",
-    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional por sección (para el segundo pipeline).",
-    "Estos ítems deben ser útiles también si se imprimen en PDF.",
+    "2) 'VID_YT: <Título> :: SEARCH: <consulta>' para videos de YouTube.",
+    "3) 'IMG_URL: <Título> :: SEARCH: <consulta>' para imágenes reales externas.",
+    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional.",
 
     // Mermaid base
     "El organizador visual en resources.organizer debe resumir el tema central de toda la sesión.",

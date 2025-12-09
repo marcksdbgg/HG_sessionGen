@@ -4,39 +4,65 @@ import { SessionRequest } from "../types";
 export class PromptComposer {
   /**
    * Composes the full system prompt using the modular JSON configurations.
+   * Teacher instructions are placed FIRST with maximum emphasis.
    */
   static compose(request: SessionRequest): string {
     const { nivel, grado, area, prompt: userRequest } = request;
-    
+
+    // 0. PRIORITY: Teacher's specific instructions FIRST
+    let composed = `╔══════════════════════════════════════════════════════════════╗
+║  INSTRUCCIONES PRIORITARIAS DEL DOCENTE - CUMPLIR AL PIE DE LA LETRA  ║
+╚══════════════════════════════════════════════════════════════╝
+
+CONTEXTO DE LA SESIÓN:
+- Nivel: ${nivel}
+- Grado: ${grado}
+- Área: ${area}
+
+PEDIDO ESPECÍFICO DEL DOCENTE (MÁXIMA PRIORIDAD):
+"${userRequest}"
+
+REGLAS DE INTERPRETACIÓN DE RECURSOS EXTERNOS:
+Si el docente pide videos o imágenes reales y NO conoces la URL exacta, usa el formato de BÚSQUEDA:
+1. Para videos: "VID_YT: Título Sugerido :: SEARCH: consulta de búsqueda"
+2. Para fotos: "IMG_URL: Título Sugerido :: SEARCH: consulta de búsqueda"
+
+Ejemplo: "VID_YT: Canción de las Vocales :: SEARCH: cancion infantil vocales pegadiza"
+
+El sistema resolverá estos enlaces automáticamente. NO inventes URLs falsas.
+
+═══════════════════════════════════════════════════════════════
+
+`;
+
     // 1. Identity & Core Task (Maestro)
-    let composed = `${Prompts.maestro.role}\n${Prompts.maestro.task}\n`;
+    composed += `${Prompts.maestro.role}\n${Prompts.maestro.task}\n`;
     composed += `Estilo y Reglas: ${Prompts.maestro.style}\n`;
     composed += `Restricciones: ${JSON.stringify(Prompts.maestro.constraints)}\n`;
-    
+
     // 2. Level Specific Strategy
     let levelConfig: PromptBase = Prompts.primaria; // Default
     if (nivel === 'Inicial') levelConfig = Prompts.inicial;
     if (nivel === 'Secundaria') levelConfig = Prompts.secundaria;
-    
+
     composed += `\n--- ESTRATEGIA PARA NIVEL ${nivel.toUpperCase()} ---\n`;
     composed += `Enfoque: ${levelConfig.focus}\n`;
     composed += `Materiales Físicos: ${levelConfig.materials}\n`;
     composed += `Tono: ${levelConfig.tone}\n`;
     composed += `Reglas de Grado: ${JSON.stringify(levelConfig.gradeRules)}\n`;
-    
+
     // 3. Virtual Resources Logic
     composed += `\n--- RECURSOS VIRTUALES (IMPORTANTE) ---\n`;
     composed += `${Prompts.recursos.instruction}\n`;
-    
+
     // 4. Fichas Logic
     composed += `\n--- FICHAS DE APLICACIÓN ---\n`;
     composed += `${Prompts.fichas.instruction}\n`;
-    
-    // 5. User Context
-    composed += `\n--- PEDIDO ESPECÍFICO ---\n`;
-    composed += `Nivel: ${nivel} | Grado: ${grado} | Área: ${area}\n`;
-    composed += `TEMA/PROMPT: "${userRequest}"\n`;
-    
+
+    // 5. Reminder of teacher request at the end
+    composed += `\n--- RECORDATORIO FINAL ---\n`;
+    composed += `NO OLVIDES cumplir el pedido del docente: "${userRequest}"\n`;
+
     return composed;
   }
 

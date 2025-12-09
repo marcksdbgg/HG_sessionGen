@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
-import { SessionData, GeneratedImage } from '../types';
+import React, { useState, useEffect } from 'react';
+import { SessionData, GeneratedImage, ResourceUpdateCallback } from '../types';
 import { ExportManager } from '../core/ExportManager';
 import { SessionGenerator } from '../core/SessionGenerator';
 import { copyToClipboard } from '../services/exportService';
-import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X } from 'lucide-react';
-import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
+import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X, Loader2 } from 'lucide-react';
+import { MarkdownText, groupItemsByHeaders, ExternalResourceRenderer, isExternalResource } from '../utils/markdownParser';
 import ResourcesPresenter from './ResourcesPresenter';
 import { fuzzyMatchImage } from '../utils/normalization';
 
@@ -12,6 +12,7 @@ interface SessionResultProps {
     data: SessionData;
     formatId: string;
     onBack: () => void;
+    onResourceUpdate?: ResourceUpdateCallback;
 }
 
 // Tooltip component
@@ -28,10 +29,10 @@ const Tooltip: React.FC<{ text: string; children: React.ReactNode }> = ({ text, 
 /**
  * Parses text to find {{imagen:Title}} tags and renders them as interactive buttons.
  */
-const SmartTextRenderer: React.FC<{ 
-    text: string; 
+const SmartTextRenderer: React.FC<{
+    text: string;
     images: GeneratedImage[] | undefined;
-    onOpenImage: (img: GeneratedImage) => void; 
+    onOpenImage: (img: GeneratedImage) => void;
 }> = ({ text, images, onOpenImage }) => {
     if (!text) return null;
 
@@ -46,13 +47,13 @@ const SmartTextRenderer: React.FC<{
                     const titleRef = match[1].trim();
                     // Refactor: Use fuzzy matching utility
                     const imgMatch = fuzzyMatchImage(titleRef, images);
-                    
+
                     // Find actual image object if ID matches
                     const img = imgMatch ? images?.find(i => i.id === imgMatch.id) : undefined;
-                    
+
                     if (img && img.base64Data) {
                         return (
-                            <button 
+                            <button
                                 key={index}
                                 onClick={() => onOpenImage(img)}
                                 className="inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-sm font-semibold hover:bg-indigo-100 hover:scale-105 transition-all align-middle cursor-pointer"
@@ -62,8 +63,8 @@ const SmartTextRenderer: React.FC<{
                             </button>
                         );
                     } else if (img && !img.base64Data) {
-                         // Fallback: Image exists in metadata but not generated yet (rare in this flow)
-                         return <span key={index} className="text-slate-400 italic mx-1 text-xs">[Generando: {titleRef}...]</span>;
+                        // Fallback: Image exists in metadata but not generated yet (rare in this flow)
+                        return <span key={index} className="text-slate-400 italic mx-1 text-xs">[Generando: {titleRef}...]</span>;
                     } else {
                         // Fallback if image not found
                         return <span key={index} className="text-slate-500 italic mx-1">[{titleRef}]</span>;
@@ -94,14 +95,25 @@ const EditableList: React.FC<{
     }
     return (
         <ul className="space-y-2">
-            {items.map((item, idx) => (
-                <li key={idx} className="flex items-start">
-                    <span className="mr-2 text-primary font-bold mt-1.5">•</span>
-                    <div className="flex-1">
-                        <SmartTextRenderer text={item} images={images} onOpenImage={onOpenImage} />
-                    </div>
-                </li>
-            ))}
+            {items.map((item, idx) => {
+                // Check if this is an external resource (VID_YT, IMG_URL, etc.)
+                if (isExternalResource(item)) {
+                    return (
+                        <li key={idx} className="list-none ml-0">
+                            <ExternalResourceRenderer item={item} />
+                        </li>
+                    );
+                }
+                // Regular item with potential {{imagen:}} tags
+                return (
+                    <li key={idx} className="flex items-start">
+                        <span className="mr-2 text-primary font-bold mt-1.5">•</span>
+                        <div className="flex-1">
+                            <SmartTextRenderer text={item} images={images} onOpenImage={onOpenImage} />
+                        </div>
+                    </li>
+                );
+            })}
         </ul>
     );
 };
@@ -138,16 +150,21 @@ const SectionHeader: React.FC<{
     </div>
 );
 
-const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack }) => {
+const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, formatId, onBack, onResourceUpdate }) => {
     const [data, setData] = useState(initialData);
     const [isEditing, setIsEditing] = useState(false);
     const [printSection, setPrintSection] = useState<'none' | 'session' | 'ficha_aula' | 'ficha_casa'>('none');
     const [regenerating, setRegenerating] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    
+
     // Presentation State
     const [showPresentation, setShowPresentation] = useState(false);
     const [presentationInitialImage, setPresentationInitialImage] = useState<GeneratedImage | null>(null);
+
+    // Sync local state with parent data prop (for progressive resource updates)
+    useEffect(() => {
+        setData(initialData);
+    }, [initialData]);
 
     const handleCopyLatex = () => {
         const latex = ExportManager.generateLatex(data);
@@ -176,7 +193,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
             setRegenerating(null);
         }
     };
-    
+
     const handleRecoverImages = async () => {
         setRegenerating('images');
         try {
@@ -208,23 +225,23 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     const showSession = !isPrinting || printSection === 'session';
     const showFichaAula = !isPrinting || printSection === 'ficha_aula';
     const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
-    
+
     // Check if images need recovery (have prompt but missing data)
     const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt);
 
     return (
         <>
             {showPresentation && data.resources && (
-                <ResourcesPresenter 
-                    resources={data.resources} 
+                <ResourcesPresenter
+                    resources={data.resources}
                     initialImage={presentationInitialImage}
                     onClose={() => {
                         setShowPresentation(false);
                         setPresentationInitialImage(null);
-                    }} 
+                    }}
                 />
             )}
-        
+
             <div className={`min-h-screen bg-slate-50 pb-20 print:bg-white print:pb-0 ${isPrinting ? 'print-mode' : ''} ${showPresentation ? 'hidden' : ''}`}>
 
                 {/* Navbar */}
@@ -245,7 +262,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 </button>
                             </Tooltip>
                         )}
-                    
+
                         {data.resources && !hasMissingImages && (
                             <Tooltip text="Ver todos los recursos (Organizador + Imágenes)">
                                 <button
@@ -307,11 +324,11 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                         </button>
                     </div>
                 )}
-                
+
                 {/* Mobile Recovery Button */}
                 {hasMissingImages && (
                     <div className="sm:hidden mx-4 mt-4">
-                         <button 
+                        <button
                             onClick={handleRecoverImages}
                             disabled={!!regenerating}
                             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-100 text-amber-800 border border-amber-200"
@@ -343,22 +360,22 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6 space-y-4">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Motivación</span>
-                                        <EditableList 
-                                            items={data.inicio.motivacion} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.inicio.motivacion}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'motivacion', val)} 
+                                            onChange={(val) => updateSection('inicio', 'motivacion', val)}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Saberes Previos</span>
-                                        <EditableList 
-                                            items={data.inicio.saberesPrevios} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.inicio.saberesPrevios}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('inicio', 'saberesPrevios', val)} 
+                                            onChange={(val) => updateSection('inicio', 'saberesPrevios', val)}
                                         />
                                     </div>
                                 </div>
@@ -377,12 +394,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias</span>
-                                        <EditableList 
-                                            items={data.desarrollo.estrategias} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.desarrollo.estrategias}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('desarrollo', 'estrategias', val)} 
+                                            onChange={(val) => updateSection('desarrollo', 'estrategias', val)}
                                         />
                                     </div>
                                 </div>
@@ -401,12 +418,12 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                                 <div className="p-6">
                                     <div className="space-y-2">
                                         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estrategias de Cierre</span>
-                                        <EditableList 
-                                            items={data.cierre.estrategias} 
-                                            isEditing={isEditing} 
+                                        <EditableList
+                                            items={data.cierre.estrategias}
+                                            isEditing={isEditing}
                                             images={data.resources?.images}
                                             onOpenImage={handleOpenImage}
-                                            onChange={(val) => updateSection('cierre', 'estrategias', val)} 
+                                            onChange={(val) => updateSection('cierre', 'estrategias', val)}
                                         />
                                     </div>
                                 </div>
@@ -431,7 +448,7 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                             </div>
                         </div>
                     </div>
-                    
+
                     <div className={`mt-8 ${showFichaCasa ? 'block' : 'hidden'}`}>
                         <div className="bg-white border border-slate-200 rounded-xl p-8 print:border-none print:p-0 shadow-sm">
                             <div className="border-b border-amber-100 pb-4 mb-6">
