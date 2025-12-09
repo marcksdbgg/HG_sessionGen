@@ -55,9 +55,9 @@ export interface VirtualResources {
 
 // Callback for progressive resource updates (non-blocking flow)
 export type ResourceUpdateCallback = (
-  type: 'image' | 'diagram',
+  type: 'image' | 'diagram' | 'section_update',
   resourceId: string,
-  resource: GeneratedImage | Organizer
+  data: GeneratedImage | Organizer | { section: keyof SessionData, field: string, value: string[] }
 ) => void;
 
 export interface SessionData {

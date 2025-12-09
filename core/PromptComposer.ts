@@ -22,12 +22,14 @@ CONTEXTO DE LA SESIÓN:
 PEDIDO ESPECÍFICO DEL DOCENTE (MÁXIMA PRIORIDAD):
 "${userRequest}"
 
-REGLAS DE INTERPRETACIÓN:
-1. Si el docente pide buscar un video de YouTube EXISTENTE → usa VID_YT: Título :: URL (busca la URL real)
-2. Si el docente pide imágenes REALES (fotos, no dibujos) → usa IMG_URL: Título :: URL para fotos reales
-3. Si el docente pide imágenes ilustradas/generadas → usa IMG_GEN: Título con entrada en resources.images
-4. Si el docente pide un organizador específico → genera ese tipo en resources.organizer
-5. PRIORIZA lo que el docente pide explícitamente sobre las reglas generales
+REGLAS DE INTERPRETACIÓN DE RECURSOS EXTERNOS:
+Si el docente pide videos o imágenes reales y NO conoces la URL exacta, usa el formato de BÚSQUEDA:
+1. Para videos: "VID_YT: Título Sugerido :: SEARCH: consulta de búsqueda"
+2. Para fotos: "IMG_URL: Título Sugerido :: SEARCH: consulta de búsqueda"
+
+Ejemplo: "VID_YT: Canción de las Vocales :: SEARCH: cancion infantil vocales pegadiza"
+
+El sistema resolverá estos enlaces automáticamente. NO inventes URLs falsas.
 
 ═══════════════════════════════════════════════════════════════
 

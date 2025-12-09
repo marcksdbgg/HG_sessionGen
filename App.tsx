@@ -47,6 +47,17 @@ function App() {
         };
       }
 
+      if (type === 'section_update') {
+        const update = resource as { section: keyof SessionData, field: string, value: string[] };
+        return {
+          ...prev,
+          [update.section]: {
+            ...prev[update.section] as any,
+            [update.field]: update.value
+          }
+        };
+      }
+
       return prev;
     });
   }, []);
@@ -64,7 +75,6 @@ function App() {
 
   const handleBack = () => {
     setView('home');
-    // Clear session when going back to allow fresh generation
     setCurrentSession(null);
     sessionRef.current = null;
   };
@@ -75,8 +85,6 @@ function App() {
         <Home
           onSessionGenerated={(data, callback) => {
             handleSessionGenerated(data, callback);
-            // Wire the callback to our state updater
-            // The callback from SessionGenerator will call this
           }}
         />
       )}

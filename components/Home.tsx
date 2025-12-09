@@ -143,7 +143,7 @@ const Home: React.FC<HomeProps> = ({ onSessionGenerated }) => {
     };
 
     const loadFromHistory = (record: SessionRecord) => {
-        onSessionGenerated(record.data);
+        onSessionGenerated(record.data, () => { });
     };
 
     const getGrades = () => {

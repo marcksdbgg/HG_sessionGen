@@ -6,40 +6,23 @@ import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateC
 import { Type, Schema } from "@google/genai";
 import { slugify } from "../utils/normalization";
 import { Prompts } from "../prompts";
+import { ExternalResourceResolver } from "./ExternalResourceResolver";
 
 export class SessionGenerator {
     private static retryPolicy = new RetryPolicy();
     private static textModelId = "gemini-2.5-flash";
-    private static imageModelId = "gemini-2.5-flash-preview-05-20";
+    private static imageModelId = "gemini-2.5-flash-image";
 
     /**
-     * LEGACY: Blocking generation - waits for all resources before returning.
-     * Use generateWithCallback for better UX.
+     * LEGACY: Blocking generation.
      */
     static async generate(request: SessionRequest): Promise<SessionData> {
-        const fullPrompt = PromptComposer.compose(request);
-
-        // FLOW A: Text Pipeline - Generate Structure
-        let sessionData = await this.generateTextSession(fullPrompt);
-
-        // Defense in Depth: Validate IDs and Structure
-        sessionData = this.validateSessionData(sessionData);
-
-        // FLOW B: Resources Pipeline - Enrich with Images and Extra Diagrams
-        // This runs efficiently without blocking the initial structure return conceptually,
-        // but here we await it to deliver the full "ready" session to the user.
-        sessionData = await this.enrichResources(sessionData, request);
-
-        return sessionData;
+        return this.generateWithCallback(request);
     }
 
     /**
      * NON-BLOCKING: Returns session immediately after text generation.
-     * Resources are generated in background with progress callbacks.
-     * 
-     * @param request - Session generation request
-     * @param onResourceUpdate - Callback fired when each resource completes
-     * @returns SessionData with images marked as isLoading: true
+     * Resources (images, diagrams, external links) are generated in background.
      */
     static async generateWithCallback(
         request: SessionRequest,
@@ -47,13 +30,13 @@ export class SessionGenerator {
     ): Promise<SessionData> {
         const fullPrompt = PromptComposer.compose(request);
 
-        // FLOW A: Text Pipeline - Generate Structure (~15s)
+        // FLOW A: Text Pipeline - Generate Structure (~10-15s)
         let sessionData = await this.generateTextSession(fullPrompt);
 
         // Defense in Depth: Validate IDs and Structure  
         sessionData = this.validateSessionData(sessionData);
 
-        // Mark all images as loading
+        // Mark all images as loading initially
         if (sessionData.resources?.images) {
             sessionData.resources.images = sessionData.resources.images.map(img => ({
                 ...img,
@@ -61,11 +44,10 @@ export class SessionGenerator {
             }));
         }
 
-        // FLOW B: Resources Pipeline - Background (fire-and-forget with callbacks)
-        // Don't await - let it run in background
+        // FLOW B: Resources Pipeline - Background (fire-and-forget)
         this.enrichResourcesBackground(sessionData, request, onResourceUpdate);
 
-        return sessionData; // Return immediately with placeholder images
+        return sessionData; // Return immediately
     }
 
     static async recoverImages(data: SessionData): Promise<SessionData> {
@@ -152,14 +134,9 @@ export class SessionGenerator {
     }
 
     private static validateSessionData(data: SessionData): SessionData {
-        // 1. Ensure Organizer ID
-        if (data.resources?.organizer) {
-            if (!data.resources.organizer.id) {
-                data.resources.organizer.id = `org-${slugify(data.sessionTitle).slice(0, 10)}`;
-            }
+        if (data.resources?.organizer && !data.resources.organizer.id) {
+            data.resources.organizer.id = `org-${slugify(data.sessionTitle).slice(0, 10)}`;
         }
-
-        // 2. Ensure Image IDs
         if (data.resources?.images) {
             data.resources.images.forEach((img, idx) => {
                 if (!img.id) {
@@ -167,54 +144,14 @@ export class SessionGenerator {
                 }
             });
         }
-
-        // 3. Ensure diagrams array exists
         if (!data.resources.diagrams) {
             data.resources.diagrams = [];
         }
-
-        return data;
-    }
-
-    private static async enrichResources(data: SessionData, request: SessionRequest): Promise<SessionData> {
-        const resources = data.resources;
-
-        // 1. Image Generation (Parallel)
-        const imagePromises = (resources.images || []).map(async (img) => {
-            if (img.base64Data) return img;
-            try {
-                const base64 = await this.generateImage(img.prompt);
-                return { ...img, base64Data: base64, isLoading: false };
-            } catch (e) {
-                console.error(`Failed to generate image: ${img.title}`, e);
-                // Return item without data, UI will handle fallback
-                return { ...img, isLoading: false };
-            }
-        });
-
-        // 2. Scan and Generate Extra Diagrams (Parallel to images)
-        // Looks for "DIAG_PROMPT: Title :: Instruction" in material lists
-        const diagramPromises = this.scanAndGenerateDiagrams(data, request);
-
-        // Wait for all resource tasks
-        const [images, diagrams] = await Promise.all([
-            Promise.all(imagePromises),
-            diagramPromises
-        ]);
-
-        // Update data
-        data.resources.images = images;
-        if (diagrams.length > 0) {
-            data.resources.diagrams = [...(data.resources.diagrams || []), ...diagrams];
-        }
-
         return data;
     }
 
     /**
-     * Background resource enrichment with individual callbacks.
-     * Each resource is processed independently and fires a callback when done.
-     * This runs in background (fire-and-forget) from generateWithCallback.
+     * Background resource enrichment loop.
      */
     private static async enrichResourcesBackground(
         data: SessionData,
@@ -223,47 +160,84 @@ export class SessionGenerator {
     ): Promise<void> {
         const resources = data.resources;
 
-        // 1. Generate images individually with callbacks (parallel but independent)
+        // 1. Generate images (Parallel)
         const imagePromises = (resources.images || []).map(async (img) => {
             if (img.base64Data) {
-                // Already has data, just notify
                 onUpdate?.('image', img.id, { ...img, isLoading: false });
                 return;
             }
-
             try {
                 const base64 = await this.generateImage(img.prompt);
-                const updatedImg: GeneratedImage = {
-                    ...img,
-                    base64Data: base64,
-                    isLoading: false
-                };
-                // Fire callback with completed image
-                onUpdate?.('image', img.id, updatedImg);
+                onUpdate?.('image', img.id, { ...img, base64Data: base64, isLoading: false });
             } catch (e) {
                 console.error(`Failed to generate image: ${img.title}`, e);
-                const errorImg: GeneratedImage = {
-                    ...img,
-                    isLoading: false,
-                    error: e instanceof Error ? e.message : 'Generation failed'
-                };
-                onUpdate?.('image', img.id, errorImg);
+                onUpdate?.('image', img.id, { ...img, isLoading: false, error: 'Failed' });
             }
         });
 
-        // 2. Generate extra diagrams in parallel
+        // 2. Generate extra diagrams (Parallel)
         const diagramPromises = this.scanAndGenerateDiagramsWithCallback(data, request, onUpdate);
 
-        // Wait for all (but don't block caller since this is fire-and-forget)
+        // 3. Resolve External Links (VID_YT / IMG_URL with SEARCH:)
+        // We assume scanAndResolveLinksWithCallback handles the parallel logic internally
+        const linkPromises = this.scanAndResolveLinksWithCallback(data, onUpdate);
+
+        // Wait for all to finish (fire-and-forget from caller perspective)
         await Promise.all([
             Promise.allSettled(imagePromises),
-            diagramPromises
+            diagramPromises,
+            linkPromises
         ]);
     }
 
-    /**
-     * Scan for DIAG_PROMPT and generate diagrams with individual callbacks.
-     */
+    private static async scanAndResolveLinksWithCallback(
+        data: SessionData,
+        onUpdate?: ResourceUpdateCallback
+    ): Promise<void> {
+        // Sections to scan
+        const sections: { key: keyof SessionData, subKey: string, items: string[] }[] = [
+            { key: 'inicio', subKey: 'materiales', items: data.inicio.materiales },
+            { key: 'desarrollo', subKey: 'materiales', items: data.desarrollo.materiales },
+            { key: 'cierre', subKey: 'materiales', items: data.cierre.materiales },
+            { key: 'tareaCasa', subKey: 'materiales', items: data.tareaCasa.materiales }
+        ];
+
+        // Flatten all items that need resolution
+        // Look for: "VID_YT: ... :: SEARCH: ..." or "IMG_URL: ... :: SEARCH: ..."
+        const resolutionTasks: Array<() => Promise<void>> = [];
+
+        sections.forEach(section => {
+            section.items.forEach((item, index) => {
+                const searchMatch = item.match(/^(VID_YT|IMG_URL):\s*(.+?)\s*::\s*SEARCH:\s*(.+)$/i);
+
+                if (searchMatch) {
+                    const typeTag = searchMatch[1].toUpperCase() as 'VID_YT' | 'IMG_URL';
+                    const title = searchMatch[2];
+                    const query = searchMatch[3];
+                    const resourceType = typeTag === 'VID_YT' ? 'video' : 'image';
+
+                    resolutionTasks.push(async () => {
+                        const resolved = await ExternalResourceResolver.resolveLink(query, resourceType);
+                        if (resolved) {
+                            // Replace item in the array
+                            const newItem = `${typeTag}: ${resolved.title} :: ${resolved.url}`;
+                            section.items[index] = newItem; // Update in place for local data reference
+
+                            // Notify UI to update specific section
+                            onUpdate?.('section_update', `${section.key}-${section.subKey}`, {
+                                section: section.key,
+                                field: section.subKey,
+                                value: [...section.items] // Send copy of updated array
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
+        await Promise.allSettled(resolutionTasks.map(task => task()));
+    }
+
     private static async scanAndGenerateDiagramsWithCallback(
         data: SessionData,
         request: SessionRequest,
@@ -271,7 +245,6 @@ export class SessionGenerator {
     ): Promise<void> {
         const diagPrompts: { title: string; instruction: string }[] = [];
 
-        // Helper to scan a list of strings
         const scanList = (items: string[]) => {
             items.forEach(item => {
                 const match = item.match(/DIAG_PROMPT:\s*(.+?)\s*::\s*(.+)/);
@@ -281,7 +254,6 @@ export class SessionGenerator {
             });
         };
 
-        // Scan all material sections
         if (data.inicio?.materiales) scanList(data.inicio.materiales);
         if (data.desarrollo?.materiales) scanList(data.desarrollo.materiales);
         if (data.cierre?.materiales) scanList(data.cierre.materiales);
@@ -289,7 +261,6 @@ export class SessionGenerator {
 
         if (diagPrompts.length === 0) return;
 
-        // Generate diagrams individually with callbacks
         await Promise.allSettled(diagPrompts.map(async (dp, idx) => {
             try {
                 const promptText = `${Prompts.diagramas.instruction}\n\n` +
@@ -319,7 +290,6 @@ export class SessionGenerator {
         const response = await ai.models.generateContent({
             model: this.imageModelId,
             contents: { parts: [{ text: prompt }] },
-            // No specific config needed for current image model behavior
         });
 
         if (response.candidates?.[0]?.content?.parts) {
@@ -329,60 +299,12 @@ export class SessionGenerator {
                 }
             }
         }
-
         throw new Error("No image data found in response");
     }
 
-    private static async scanAndGenerateDiagrams(data: SessionData, request: SessionRequest): Promise<Organizer[]> {
-        const diagPrompts: { title: string; instruction: string }[] = [];
-
-        // Helper to scan a list of strings
-        const scanList = (items: string[]) => {
-            items.forEach(item => {
-                // Match: DIAG_PROMPT: Title :: Instruction
-                const match = item.match(/DIAG_PROMPT:\s*(.+?)\s*::\s*(.+)/);
-                if (match) {
-                    diagPrompts.push({ title: match[1], instruction: match[2] });
-                }
-            });
-        };
-
-        // Scan all material sections
-        if (data.inicio?.materiales) scanList(data.inicio.materiales);
-        if (data.desarrollo?.materiales) scanList(data.desarrollo.materiales);
-        if (data.cierre?.materiales) scanList(data.cierre.materiales);
-        if (data.tareaCasa?.materiales) scanList(data.tareaCasa.materiales);
-
-        if (diagPrompts.length === 0) return [];
-
-        // Generate diagrams for found prompts
-        const results = await Promise.all(diagPrompts.map(async (dp, idx) => {
-            try {
-                // Construct prompt for this diagram
-                const promptText = `${Prompts.diagramas.instruction}\n\n` +
-                    `CONTEXTO:\nNivel: ${request.nivel}, Grado: ${request.grado}, Area: ${request.area}\n` +
-                    `DIAGRAM REQUEST: Title: "${dp.title}", Instruction: "${dp.instruction}"\n\n` +
-                    `${Prompts.diagramas.outputContract}\n${Prompts.diagramas.guidelines.join('\n')}`;
-
-                const response = await ai.models.generateContent({
-                    model: this.textModelId,
-                    contents: [{ role: 'user', parts: [{ text: promptText }] }],
-                    config: { responseMimeType: "application/json" }
-                });
-
-                const json = JSON.parse(response.text || "{}");
-                if (json.organizer) {
-                    // Ensure ID
-                    const org = json.organizer;
-                    if (!org.id) org.id = `extra-diag-${idx}-${slugify(dp.title).slice(0, 10)}`;
-                    return org as Organizer;
-                }
-            } catch (e) {
-                console.error(`Failed to generate extra diagram: ${dp.title}`, e);
-            }
-            return null;
-        }));
-
-        return results.filter(d => d !== null) as Organizer[];
+    // Fallback for logic still using the old method if any
+    private static async enrichResources(data: SessionData, request: SessionRequest): Promise<SessionData> {
+        await this.enrichResourcesBackground(data, request);
+        return data;
     }
 }
