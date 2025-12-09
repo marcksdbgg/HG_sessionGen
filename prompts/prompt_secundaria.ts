@@ -1,11 +1,24 @@
 export default {
-  "focus": "Enfócate en pensamiento crítico, indagación, análisis de fuentes, argumentación y autonomía. Promueve discusión, síntesis y aplicación en contextos reales.",
-  "materials": "Recursos tecnológicos, textos breves, laboratorios, datos, estudios de caso y organizadores visuales de mayor complejidad. Incluye materiales digitales listos para proyectar.",
-  "tone": "Retador, académico pero accesible, fomentando ciudadanía y rigor.",
-  "gradeRules": [
+  focus: [
+    "Pensamiento crítico, indagación, análisis de fuentes, argumentación y autonomía.",
+    "Discusión, síntesis y aplicación en contextos reales."
+  ].join(" "),
+
+  materials: [
+    "Recursos tecnológicos, textos breves, datos, estudios de caso y organizadores visuales más complejos.",
+    "Incluye materiales digitales listos para proyectar o analizar en aula."
+  ].join(" "),
+
+  tone: [
+    "Retador y académico pero accesible.",
+    "Fomenta ciudadanía, rigor y reflexión."
+  ].join(" "),
+
+  gradeRules: [
     "En 'propositoDidactico' incluye uno o dos propósitos coherentes con el tema.",
-    "Cada propósito debe conectar con un organizador visual o evidencia de aprendizaje.",
-    "En materiales sugiere al menos una imagen o recurso audiovisual externo confiable cuando el tema sea real.",
-    "Evita proponer imágenes generadas para contenidos históricos, científicos o artísticos específicos."
+    "Cada propósito debe conectar con evidencia de aprendizaje o un organizador visual.",
+    "Añade materiales por sección con prefijos parseables.",
+    "Evita URLs inventadas; solo usa enlaces si son totalmente verificables.",
+    "Puedes proponer imágenes generadas si representan modelos, esquemas o visualizaciones didácticas generales."
   ]
 };

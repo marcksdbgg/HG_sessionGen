@@ -1,3 +1,10 @@
 export default {
-  "instruction": "Genera dos fichas de aplicación distintas: una para desarrollar en el aula (trabajo grupal o individual guiado) y otra para casa (refuerzo o extensión). Deben ser claras y listas para imprimir. Puedes usar encabezados internos marcados en texto para organizar por secciones temáticas cuando sea pertinente."
+  instruction: [
+    "Genera dos fichas de aplicación distintas:",
+    "1) Ficha de Aula (trabajo guiado individual o grupal).",
+    "2) Ficha de Casa (refuerzo o extensión).",
+    "Deben ser claras, listas para imprimir y coherentes con la sesión.",
+    "Usa encabezados internos en texto cuando ayuden a organizar por subtemas.",
+    "Incluye instrucciones breves y criterios de logro simples."
+  ].join(" ")
 };

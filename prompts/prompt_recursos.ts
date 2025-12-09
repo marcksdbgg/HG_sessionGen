@@ -1,3 +1,35 @@
 export default {
-    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias. PARA MERMAID: 1. SIEMPRE usa comillas dobles para los textos de los nodos (ej: id[\"Texto con (paréntesis)\"]). 2. Asegúrate de que 'graph TD' esté en la PRIMERA línea y los nodos empiecen en la SEGUNDA línea."
+    instruction: [
+        "RECURSOS VIRTUALES PARA DOS FLUJOS:",
+        "Este prompt se usa en el flujo A (texto). El flujo B generará imágenes/diagramas.",
+        "",
+        "1) IMÁGENES (resources.images):",
+        "- Genera entre 2 y 4 imágenes clave si el tema lo amerita.",
+        "- Cada imagen debe incluir: id, title, prompt, moment.",
+        "- El 'moment' debe ser exactamente uno de: 'Inicio', 'Desarrollo', 'Cierre'.",
+        "- El 'prompt' debe ser detallado y apto para un modelo de imagen.",
+        "- Incluye explícitamente la regla: 'Text inside the image must be in Spanish'.",
+        "",
+        "2) SINCRONIZACIÓN CON TEXTO:",
+        "- Cuando una estrategia mencione usar una imagen generada, inserta el marcador {{imagen:Título Exacto}} en esa misma oración.",
+        "- El título dentro del marcador debe coincidir EXACTAMENTE con resources.images[].title.",
+        "",
+        "3) ORGANIZADOR MERMAID (resources.organizer):",
+        "- Incluye id, title, type y mermaidCode.",
+        "- Usa 'graph TD' o 'mindmap'.",
+        "- 'graph TD' o 'mindmap' debe estar en la PRIMERA línea.",
+        "- Los nodos deben usar comillas dobles en los textos.",
+        "- Incluye textFallback útil y una description breve.",
+        "",
+        "4) MATERIALES POR SECCIÓN (muy importante para el flujo B):",
+        "En cada bloque de materiales (inicio/desarrollo/cierre/tareaCasa) agrega ítems con prefijos:",
+        "• IMG_GEN: <Título Exacto>  (debe existir como imagen en resources.images)",
+        "• DIAG_PROMPT: <Título> :: <instrucción breve para un diagrama por sección>",
+        "• IMG_URL: <Título> :: <URL>  (solo si la URL es real y segura)",
+        "• VID_YT: <Título> :: <URL>   (solo si la URL es real y segura)",
+        "",
+        "5) NO INVENTES LINKS:",
+        "- Si no estás seguro del enlace, NO lo incluyas.",
+        "- En su lugar, escribe una descripción del recurso y/o un IMG_GEN o DIAG_PROMPT."
+    ].join("\n")
 };

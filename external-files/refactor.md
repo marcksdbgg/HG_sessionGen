@@ -1,230 +1,104 @@
-# Plan de Refactorización – Aula Express (Recursos, búsqueda vs generación, nueva UI)
-
-## Objetivo
-Evolucionar Aula Express para que siempre entregue materiales/recursos virtuales útiles por momento, con una distinción clara entre:
-- Recursos reales y específicos (deben ser sugeridos como fuentes externas confiables y luego resueltos por la UI).
-- Recursos creativos o inventados (pueden ser generados por IA bajo reglas por nivel).
-
-Incorporar una experiencia UI moderna donde:
-- La vista principal muestre la sesión (Inicio/Desarrollo/Cierre/Tarea).
-- Los recursos (incluyendo fichas) vivan en una ventana/pantalla dedicada de presentación.
-- Las citas sean responsabilidad de la UI, no del LLM.
+# Refactor Plan — Aula Express
+Fecha: 2025-12-08
+Objetivo: corregir bugs actuales, separar pipelines (texto vs recursos),
+robustecer prompts bajo Strategy + Registry y mejorar UX/performance.
 
 ---
 
-## 1. Problemas actuales que bloquean el objetivo
-1) El schema define materiales como string[].
-   - No permite tipificar imagen/video/organizador.
-   - No permite marcar si el recurso es “externo” o “generado”.
-2) No existe un motor de resolución de recursos.
-   - El LLM no puede “buscar” fuentes reales.
-3) PromptComposer no incluye maestro.structure ni maestro.constraints.
-4) El UI mezcla sesión y fichas en la misma vista y no existe vista de recursos.
-5) Inconsistencias de tipado/props en UI (SessionResultProps vs uso en App).
-6) Riesgo de seguridad: API key expuesta en cliente.
+## 1. Objetivos funcionales del nuevo flujo
+
+### 1.1 Flujo A — TextSession pipeline
+- Responsabilidad:
+  - Generar JSON de sesión completo (sin bloquear UI por recursos pesados).
+  - Incluir:
+    - resources.organizer (base)
+    - resources.images (metadatos + prompts)
+  - En cada sección de materiales:
+    - listar recursos parseables por prefijo:
+      - IMG_GEN
+      - DIAG_PROMPT
+      - IMG_URL
+      - VID_YT
+- Output:
+  - SessionData válido según esquema extendido.
+
+### 1.2 Flujo B — Resource pipeline
+- Responsabilidad:
+  - Tomar SessionData y enriquecer recursos por sección.
+  - Generar:
+    - imágenes en paralelo controlado
+    - diagramas adicionales
+  - Validar links externos
+  - Resolver títulos/IDs faltantes
+- Output:
+  - SessionData enriquecido sin romper el contenido textual.
 
 ---
 
-## 2. Nuevo modelo de datos recomendado
+## 2. Bugs y fixes críticos
 
-### 2.1 Nuevo tipo Resource
-Crear un tipo fuerte, por ejemplo:
-- id
-- title
-- kind: "image" | "video" | "organizer" | "reading" | "worksheet" | "other"
-- moment: "inicio" | "desarrollo" | "cierre" | "tarea" | "general"
-- intent: "project" | "print" | "copy-to-notebook" | "demo" | "homework"
-- source:
-  - mode: "external" | "generated"
-  - providerHint: texto de institución/colección sugerida
-  - queryHint: texto de búsqueda sugerida por el LLM
-  - generationHint: prompt breve solo cuando corresponda
-- notes: uso pedagógico sugerido
+### 2.1 Desalineación Schema ↔ Types (bug silencioso) [tu punto 5.2]
+**Problema**
+- types.ts exige:
+  - Organizer.id
+  - GeneratedImage.id
+- SESSION_SCHEMA no los exige como required.
+- Resultado:
+  - organizer.id puede ser undefined
+  - `diagram-${organizer.id}-...` rompe o genera ids inválidos
+  - `findIndex` por id falla
 
-### 2.2 Nuevo SessionSchema
-Agregar una propiedad top-level:
-- recursos: Resource[]
+**Solución**
+A) Fortalecer schema:
+- En `resources.organizer.required` añadir `"id"`.
+- En `resources.images.items.required` añadir `"id"`.
 
-Mantener materiales por momento durante una transición corta, pero marcar como deprecado en el UI.
-Objetivo final:
-- Usar recursos[] como fuente de verdad para la nueva ventana.
-
-### 2.3 Reglas por nivel en schema/validación
-- Inicial y Primaria:
-  - propositoDidactico debe aceptar 1 item.
-- Secundaria:
-  - permitir 1–2 items.
+B) Post-procesador adicional (defensa en profundidad):
+- `validateSessionData(session)`
+  - si falta organizer.id -> generar `org-${slug(sessionTitle)}`
+  - si falta image.id -> generar `img-${moment.toLowerCase()}-${slug(title)}`
 
 ---
 
-## 3. Prompting y composición
+### 2.2 Riesgo “títulos no sincronizados” [tu punto 5.3]
+**Problema**
+- UI busca match estricto por title en `{{imagen:...}}`.
+- Variaciones semánticas rompen el match.
 
-### 3.1 Nuevo módulo de prompts
-Agregar y usar:
-- prompt_recursos.json
-
-### 3.2 PromptComposer
-Actualizar compose() para incluir:
-- Prompts.maestro.structure
-- Prompts.maestro.constraints (serializadas en texto)
-- Prompts.recursos.instruction
-
-Esto asegura que las reglas globales de “cuándo generar vs cuándo referenciar externo” estén realmente activas.
-
-### 3.3 Estrategia de salida del LLM
-El LLM debe:
-- Completar recursos[] con descripciones estructuradas.
-- No escribir URLs ni citas.
-- Para recursos externos, incluir providerHint y queryHint.
-- Para recursos generados (solo en contextos creativos), incluir generationHint.
+**Solución**
+1) Validator:
+   - Extraer todos los `{{imagen:Title}}` del texto.
+   - Comparar con `resources.images.title`.
+   - Si hay mismatch:
+     - Opción A: normalización suave (trim, lower, quitar artículos)
+     - Opción B: re-ask de corrección al LLM con un prompt corto
+2) UI fallback:
+   - Si no hay match exacto:
+     - intentar fuzzy match simple (Levenshtein pequeño)
+     - mostrar placeholder "Generando imagen..." si existe IMG_GEN asociado.
 
 ---
 
-## 4. Motor de resolución de recursos (UI/Service)
+### 2.3 Regeneración parcial devuelve wrapper inválido [tu punto 5.4]
+**Problema**
+- `regenerateSection` espera `{ "inicio": {...} }`
+- Prompt actual no fuerza wrapper.
 
-### 4.1 ResourceResolver
-Crear un módulo que:
-- Reciba recursos[] del LLM.
-- Si source.mode = "external":
-  - Use un servicio de búsqueda predefinido (interno o API de búsqueda educativa).
-  - Resuelva a un objeto enriquecido con:
-    - url
-    - thumbnail
-    - attribution
-    - license si está disponible
-- Si source.mode = "generated":
-  - Construya un prompt final para imagen/video según reglas del nivel.
-  - En la demo frontend-only, simular con placeholders hasta integrar un backend.
+**Solución**
+- Ajustar `PromptComposer.composeRegeneration`:
+  - “Devuelve un JSON con la clave raíz exactamente igual a sectionKey”
 
-### 4.2 Política de confianza de fuentes
-Whitelist sugerida por tipo:
-- Arte y Cultura: museos, fundaciones, catálogos oficiales.
-- Historia/Ciencias: repositorios educativos, enciclopedias institucionales, portales académicos.
-- Matemática/Comunicación: recursos ministeriales y editoriales educativas reconocidas.
-
-La UI debe mostrar siempre atribución final.
+- Schema parcial ya exige required rootKey → refuerzo perfecto.
 
 ---
 
-## 5. Nueva experiencia UI/UX
+### 2.4 ExportManager y LaTeX sin escape [tu punto 5.5]
+**Problema**
+- Caracteres especiales rompen compilación:
+  `% _ & # $ { } ~ ^ \`
 
-### 5.1 Navegación
-Cambiar ViewState en App:
-- "home"
-- "result"
-- "resources"
-
-Al generar sesión:
-- Mostrar "result"
-- Botón destacado: “Ver recursos para proyectar”
-
-### 5.2 SessionResult (vista principal)
-Mostrar solo:
-- Header
-- Inicio/Desarrollo/Cierre/Tarea
-
-Ocultar fichas en esta vista.
-Agregar un bloque “Resumen de materiales” minimalista que liste títulos de recursos y un CTA hacia la vista de recursos.
-
-### 5.3 ResourcesPresenter (nueva pantalla)
-Diseñar una pantalla tipo “modo presentación”:
-- Filtros por momento y tipo de recurso.
-- Cards grandes con:
-  - imagen/miniatura
-  - título
-  - propósito de uso
-  - botones:
-    - “Abrir en pantalla completa”
-    - “Imprimir”
-    - “Copiar consigna”
-
-Aquí se muestran:
-- organizadores visuales
-- imágenes
-- videos
-- lecturas
-- fichas aula y casa
-
-### 5.4 Fullscreen Resource Viewer
-Una sub-vista modal o route que:
-- Reproduce video o muestra imagen/organizador.
-- Incluye atribución visible y link externo.
-- Soporta modo proyector.
-
----
-
-## 6. Exportación
-
-### 6.1 LaTeX
-Tu plantilla tabular MINEDU es compatible con el enfoque por momentos/estrategias/materiales.
-Recomendación:
-- Mantener placeholders actuales.
-- En la fase 1, mapear materiales tradicionales como texto breve.
-- En la fase 2, generar una lista resumida de recursos por momento desde recursos[].
-
----
-
-## 7. Validación y robustez
-
-### 7.1 Zod
-Agregar validación post-parsing para:
-- SessionData
-- Resource[]
-
-### 7.2 Regeneración parcial
-Permitir regenerar:
-- solo estrategias
-- solo recursos
-- solo fichas
-
-Con schemas parciales dedicados.
-
----
-
-## 8. Seguridad
-
-### 8.1 API key
-Eliminar la key del bundle cliente.
-Introducir:
-- Un backend mínimo (edge function o serverless)
-- Proxy seguro para llamadas a Gemini.
-
----
-
-## 9. Limpieza técnica
-
-1) Depurar FormatPack legacy si no se usa.
-2) Corregir props incongruentes:
-   - SessionResultProps vs App usage.
-3) Unificar fuente única de prompts:
-   - Mantener index.ts como canonical
-   - O migrar a JSON importando con resolveJsonModule activado.
-
----
-
-## 10. Roadmap sugerido por fases
-
-### Fase 1 (rápida, mínimo cambio)
-- Mejorar prompts para forzar materiales.
-- Integrar estructura/constraints/recursos en PromptComposer.
-- UI: botón “Ver recursos” con vista simple que liste materiales actuales.
-
-### Fase 2 (núcleo funcional)
-- Añadir recursos[] al schema y types.
-- Implementar ResourcesPresenter.
-- Mover fichas a la vista de recursos.
-
-### Fase 3 (búsqueda vs generación real)
-- Implementar ResourceResolver con búsqueda real.
-- Añadir generación de imágenes solo para casos creativos.
-
-### Fase 4 (pulido)
-- Mejoras de accesibilidad, offline cache de recursos, analytics de uso docente.
-
----
-
-## Resultado esperado
-- Sesiones que ya no “mencionan imágenes sin mostrarlas”.
-- Recursos listos para proyectar con atribución clara.
-- Separación elegante entre planificación (sesión) y ejecución en aula (recursos).
-- Cumplimiento estricto de reglas por nivel y propósito didáctico.
+**Solución**
+- Implementar:
+  ```ts
+  const LATEX_SPECIAL = /[\\%_&#${}~^]/g;
+  function escapeLatex(s: string) { ... }

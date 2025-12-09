@@ -1,11 +1,24 @@
 export default {
-  "focus": "Enfócate en la construcción del conocimiento mediante material concreto, situaciones vivenciales, trabajo colaborativo y andamiaje progresivo. Integra preguntas guiadas y momentos de metacognición simples.",
-  "materials": "Material estructurado y no estructurado del entorno, recursos impresos, material manipulativo y recursos digitales breves. Incluye siempre al menos un organizador visual que el estudiante pueda copiar en el cuaderno.",
-  "tone": "Motivador, reflexivo y participativo, con instrucciones claras y ejemplos sencillos.",
-  "gradeRules": [
+  focus: [
+    "Construcción activa del conocimiento con material concreto y situaciones vivenciales.",
+    "Trabajo colaborativo, preguntas guiadas y metacognición simple."
+  ].join(" "),
+
+  materials: [
+    "Material estructurado y no estructurado del entorno, impresos, manipulativos y recursos digitales breves.",
+    "Incluye al menos un organizador visual que el estudiante pueda copiar o adaptar en cuaderno."
+  ].join(" "),
+
+  tone: [
+    "Motivador, reflexivo y participativo.",
+    "Instrucciones claras y ejemplos sencillos."
+  ].join(" "),
+
+  gradeRules: [
     "En 'propositoDidactico' incluye solo un propósito.",
-    "El propósito debe estar formulado como producto claro del estudiante e insinuar el organizador visual que se usará.",
-    "En materiales incluye una imagen clave del tema y un organizador visual.",
-    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas."
+    "El propósito debe estar formulado como producto claro del estudiante.",
+    "Incluye materiales específicos por sección usando los prefijos indicados (IMG_GEN, DIAG_PROMPT, etc.).",
+    "Puedes sugerir imágenes generadas tanto para temas reales como creativos si cumplen función didáctica clara.",
+    "Si mencionas un recurso externo, evita URL salvo certeza total."
   ]
 };

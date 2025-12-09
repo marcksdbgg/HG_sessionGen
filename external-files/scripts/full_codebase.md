@@ -25,7 +25,9 @@ HG_sessionGen/
 ├── package.json
 ├── prompts
 │   ├── index.ts
+│   ├── prompt_diagramas.ts
 │   ├── prompt_fichas.ts
+│   ├── prompt_imagenes.ts
 │   ├── prompt_inicial.ts
 │   ├── prompt_maestro.ts
 │   ├── prompt_primaria.ts
@@ -1905,20 +1907,32 @@ import primaria from './prompt_primaria';
 import secundaria from './prompt_secundaria';
 import fichas from './prompt_fichas';
 import recursos from './prompt_recursos';
+import imagenes from './prompt_imagenes';
+import diagramas from './prompt_diagramas';
 
 // Type definitions for the prompt structures to ensure type safety
 export interface PromptBase {
+    // Maestro
     role?: string;
     task?: string;
     style?: string;
     structure?: string;
     constraints?: string[];
+
+    // Level blocks
     focus?: string;
     materials?: string;
     tone?: string;
     gradeRules?: string[];
+
+    // Feature instructions
     instruction?: string;
-    organizerHint?: string;
+
+    // Second flow prompts (builders)
+    inputContract?: string;
+    outputContract?: string;
+    guidelines?: string[];
+    examples?: string[];
 }
 
 // Export the raw JSONs wrapped in a typed object
@@ -1928,84 +1942,314 @@ export const Prompts = {
     primaria: primaria as PromptBase,
     secundaria: secundaria as PromptBase,
     fichas: fichas as PromptBase,
-    recursos: recursos as PromptBase
+    recursos: recursos as PromptBase,
+
+    // New: second pipeline prompt blueprints
+    imagenes: imagenes as PromptBase,
+    diagramas: diagramas as PromptBase,
 };
+
+```
+
+## File: `prompts\prompt_diagramas.ts`
+```ts
+export default {
+    instruction: [
+        "Prompt de soporte para el FLUJO B (generación de diagramas Mermaid).",
+        "Genera código Mermaid robusto y compatible con DiagramRenderer."
+    ].join(" "),
+
+    inputContract: [
+        "Recibirás un objeto con:",
+        "{",
+        "  nivel, grado, area,",
+        "  sectionKey,",
+        "  sectionText: string[],",
+        "  diagramTitle: string,",
+        "  diagramType?: string",
+        "}"
+    ].join("\n"),
+
+    outputContract: [
+        "Devuelve SOLO JSON válido:",
+        "{",
+        "  organizer: {",
+        "    id, title, type, mermaidCode, description, textFallback",
+        "  }",
+        "}"
+    ].join("\n"),
+
+    guidelines: [
+        "El mermaidCode debe iniciar con 'graph TD' o 'mindmap' en la primera línea.",
+        "Asegura que los textos de nodos estén entre comillas dobles.",
+        "No uses HTML, links, ni etiquetas peligrosas.",
+        "Crea nodos cortos y legibles para proyección en aula.",
+        "Incluye un textFallback que refleje la misma estructura.",
+        "Si diagramType no viene, elige el más adecuado al contenido de la sección."
+    ],
+
+    examples: [
+        "graph TD",
+        "A[\"Concepto central\"] --> B[\"Idea 1\"]",
+        "A --> C[\"Idea 2\"]"
+    ]
+};
+
 ```
 
 ## File: `prompts\prompt_fichas.ts`
 ```ts
 export default {
-  "instruction": "Genera dos fichas de aplicación distintas: una para desarrollar en el aula (trabajo grupal o individual guiado) y otra para casa (refuerzo o extensión). Deben ser claras y listas para imprimir. Puedes usar encabezados internos marcados en texto para organizar por secciones temáticas cuando sea pertinente."
+  instruction: [
+    "Genera dos fichas de aplicación distintas:",
+    "1) Ficha de Aula (trabajo guiado individual o grupal).",
+    "2) Ficha de Casa (refuerzo o extensión).",
+    "Deben ser claras, listas para imprimir y coherentes con la sesión.",
+    "Usa encabezados internos en texto cuando ayuden a organizar por subtemas.",
+    "Incluye instrucciones breves y criterios de logro simples."
+  ].join(" ")
 };
+
+```
+
+## File: `prompts\prompt_imagenes.ts`
+```ts
+export default {
+    instruction: [
+        "Prompt de soporte para el FLUJO B (generación de imágenes).",
+        "Tu tarea es convertir contexto pedagógico en prompts de imagen de alta calidad."
+    ].join(" "),
+
+    inputContract: [
+        "Recibirás un objeto con:",
+        "{",
+        "  nivel, grado, area,",
+        "  sectionKey,",
+        "  sectionText: string[],",
+        "  materials: string[],",
+        "  imageRefs: [{ title, moment, existingPrompt? }]",
+        "}"
+    ].join("\n"),
+
+    outputContract: [
+        "Devuelve SOLO JSON válido:",
+        "{",
+        "  images: [",
+        "    { id, title, moment, prompt }",
+        "  ]",
+        "}"
+    ].join("\n"),
+
+    guidelines: [
+        "Respeta el nivel: más lúdico y simple en Inicial, más concreto en Primaria, más analítico en Secundaria.",
+        "El título debe ser idéntico al recibido si ya existe.",
+        "El prompt debe ser específico y visualmente didáctico.",
+        "Incluye la línea literal: 'Text inside the image must be in Spanish'.",
+        "Evita marcas registradas y rostros de personas reales identificables.",
+        "Si el material sugiere una imagen externa real muy específica, crea una versión genérica educativa."
+    ],
+
+    examples: [
+        "Ejemplo de estilo de prompt:",
+        "Ilustración educativa limpia y clara de ...; etiquetas simples; fondo neutro;",
+        "Text inside the image must be in Spanish."
+    ]
+};
+
 ```
 
 ## File: `prompts\prompt_inicial.ts`
 ```ts
 export default {
-  "focus": "Enfócate en el aprendizaje a través del juego, el movimiento, la exploración sensorial y la comunicación oral. Prioriza rutinas simples, consignas cortas y aprendizaje vivencial.",
-  "materials": "Usa materiales grandes, coloridos, manipulables y seguros del entorno inmediato. Incluye siempre recursos visuales simples y lúdicos. Si se sugiere un recurso virtual, descríbelo como material para proyectar o mostrar en pantalla.",
-  "tone": "Muy lúdico, cariñoso, paciente y motivador. Evita exceso de tecnicismos.",
-  "gradeRules": [
+  focus: [
+    "Aprendizaje por juego, exploración sensorial, movimiento y comunicación oral.",
+    "Rutinas simples, consignas cortas y aprendizaje vivencial."
+  ].join(" "),
+
+  materials: [
+    "Materiales grandes, coloridos, manipulables y seguros del entorno inmediato.",
+    "Incluye recursos visuales simples y lúdicos.",
+    "Si sugieres recursos virtuales, descríbelos como apoyos para proyectar."
+  ].join(" "),
+
+  tone: [
+    "Muy lúdico, cariñoso, paciente, con lenguaje sencillo.",
+    "Evita tecnicismos excesivos."
+  ].join(" "),
+
+  gradeRules: [
     "En 'propositoDidactico' incluye solo un propósito.",
-    "El propósito debe describir un organizador visual muy simple o una producción gráfica adecuada a inicial.",
-    "En materiales sugiere al menos una imagen generada solo si el pedido es creativo o narrativo infantil.",
-    "Si el tema es real y específico, sugiere imágenes externas de referencia sin inventarlas."
+    "El propósito debe describir un producto observable adecuado a Inicial.",
+    "Incorpora al menos una estrategia de movimiento o juego guiado.",
+    "En materiales prioriza 'IMG_GEN' solo si el pedido es narrativo, creativo o de alto valor visual.",
+    "Para temas muy reales o específicos, prefiere material concreto del aula y descripciones sin URLs inventadas."
   ]
 };
+
 ```
 
 ## File: `prompts\prompt_maestro.ts`
 ```ts
 export default {
-  "role": "Eres un experto pedagogo peruano y diseñador instruccional especializado en tecnología educativa.",
-  "task": "Tu tarea es crear una Sesión de Aprendizaje completa en JSON estricto. DEBES integrar la generación de recursos visuales.",
-  "style": "Lenguaje pedagógico claro. REGLA DE ORO IMÁGENES: 1. Todo texto dentro de la imagen generada DEBE estar en ESPAÑOL (ej: 'Agua' no 'Water'). 2. Las imágenes deben ser planas y claras, estilo educativo.",
-  "structure": "JSON estricto. Incluye 'resources' con 'organizer' (mermaid) e 'images' (prompts detallados).",
-  "constraints": [
-    "El 'teacherName' es '___________'.",
-    "No inventes URLs. Usa descripciones.",
-    "Si la actividad dice 'Dibujar en la pizarra', asume que se proyectará la imagen generada.",
-    "El organizador visual debe resumir el tema central.",
-    "CITAS EN TEXTO: Cuando en una estrategia (Inicio/Desarrollo/Cierre) menciones usar una imagen que vas a generar, inserta OBLIGATORIAMENTE el marcador `{{imagen:Título Exacto}}` en la frase donde se usa (ej: 'Proyectaremos {{imagen:Ciclo del Agua}} para analizar...'). NO listes los recursos al final, intégralos en la narrativa."
+  role: [
+    "Eres un experto pedagogo peruano y diseñador instruccional especializado en tecnología educativa.",
+    "Conoces el CNEB y prácticas didácticas actuales para Inicial, Primaria y Secundaria."
+  ].join(" "),
+
+  task: [
+    "Crear una Sesión de Aprendizaje completa en JSON estricto, alineada a MINEDU.",
+    "Debes preparar el contenido para un sistema de dos flujos:",
+    "(A) generación del JSON textual,",
+    "(B) un pipeline separado que generará/insertará recursos visuales y audiovisuales."
+  ].join(" "),
+
+  style: [
+    "Redacción clara, accionable y orientada a aula real.",
+    "Evita relleno, prioriza pasos concretos.",
+    "Cuando menciones imágenes generadas, integra el marcador {{imagen:Título Exacto}} dentro de la estrategia donde se usa.",
+    "No traduzcas nombres del área/grado."
+  ].join(" "),
+
+  structure: [
+    "Salida OBLIGATORIA en JSON válido y completo según el esquema de la app.",
+    "Incluye la sección 'resources' con:",
+    "organizer (Mermaid) e images (prompts de imagen).",
+    "Además, en 'materiales' de cada momento, lista recursos por sección usando convenciones parseables."
+  ].join(" "),
+
+  constraints: [
+    // Identidad de docente
+    "El 'teacherName' debe ser exactamente '___________'.",
+
+    // Robustez de IDs (mitiga 5.2 aunque el schema aún no lo exija)
+    "Siempre incluye 'id' en resources.organizer y en cada objeto de resources.images.",
+    "Usa ids estables y breves tipo: org-<tema-corto> y img-<momento>-<slug>.",
+
+    // Títulos sincronizados (mitiga 5.3)
+    "Todo título de imagen en resources.images debe coincidir EXACTAMENTE con el título usado en {{imagen:Título Exacto}}.",
+    "No uses sinónimos ni variaciones de artículos en esos títulos.",
+
+    // URLs
+    "No inventes URLs.",
+    "Solo incluye un enlace si estás 100% seguro de que existe y es correcto.",
+    "Si no estás seguro, reemplaza el link por una descripción + un prompt de IA o una sugerencia de búsqueda sin URL.",
+
+    // Materiales por sección: convención para el segundo flujo
+    "En inicio.materiales, desarrollo.materiales, cierre.materiales y tareaCasa.materiales usa estos prefijos cuando aplique:",
+    "1) 'IMG_GEN: <Título Exacto>' para referenciar una imagen a generar (debe existir en resources.images).",
+    "2) 'IMG_URL: <Título> :: <URL>' solo si la URL es real y segura.",
+    "3) 'VID_YT: <Título> :: <URL>' solo si la URL es real y segura.",
+    "4) 'DIAG_PROMPT: <Título> :: <instrucción breve>' para solicitar un diagrama adicional por sección (para el segundo pipeline).",
+    "Estos ítems deben ser útiles también si se imprimen en PDF.",
+
+    // Mermaid base
+    "El organizador visual en resources.organizer debe resumir el tema central de toda la sesión.",
+    "El mermaidCode no debe incluir HTML ni scripts.",
+
+    // Coherencia didáctica
+    "No hagas listas genéricas; contextualiza al área, grado y pedido docente.",
+    "Mantén coherencia entre propósito, estrategias, materiales y fichas."
   ]
 };
+
 ```
 
 ## File: `prompts\prompt_primaria.ts`
 ```ts
 export default {
-  "focus": "Enfócate en la construcción del conocimiento mediante material concreto, situaciones vivenciales, trabajo colaborativo y andamiaje progresivo. Integra preguntas guiadas y momentos de metacognición simples.",
-  "materials": "Material estructurado y no estructurado del entorno, recursos impresos, material manipulativo y recursos digitales breves. Incluye siempre al menos un organizador visual que el estudiante pueda copiar en el cuaderno.",
-  "tone": "Motivador, reflexivo y participativo, con instrucciones claras y ejemplos sencillos.",
-  "gradeRules": [
+  focus: [
+    "Construcción activa del conocimiento con material concreto y situaciones vivenciales.",
+    "Trabajo colaborativo, preguntas guiadas y metacognición simple."
+  ].join(" "),
+
+  materials: [
+    "Material estructurado y no estructurado del entorno, impresos, manipulativos y recursos digitales breves.",
+    "Incluye al menos un organizador visual que el estudiante pueda copiar o adaptar en cuaderno."
+  ].join(" "),
+
+  tone: [
+    "Motivador, reflexivo y participativo.",
+    "Instrucciones claras y ejemplos sencillos."
+  ].join(" "),
+
+  gradeRules: [
     "En 'propositoDidactico' incluye solo un propósito.",
-    "El propósito debe estar formulado como producto claro del estudiante e insinuar el organizador visual que se usará.",
-    "En materiales incluye una imagen clave del tema y un organizador visual.",
-    "Solo sugiere imágenes generadas si el contenido es creativo o ficticio; para temas reales, menciona fuentes institucionales sugeridas."
+    "El propósito debe estar formulado como producto claro del estudiante.",
+    "Incluye materiales específicos por sección usando los prefijos indicados (IMG_GEN, DIAG_PROMPT, etc.).",
+    "Puedes sugerir imágenes generadas tanto para temas reales como creativos si cumplen función didáctica clara.",
+    "Si mencionas un recurso externo, evita URL salvo certeza total."
   ]
 };
+
 ```
 
 ## File: `prompts\prompt_recursos.ts`
 ```ts
 export default {
-    "instruction": "Genera recursos visuales para proyectar. IMPORTANTE: En el array de 'images', el 'prompt' debe especificar explícitamente 'Text inside the image must be in Spanish'. Asegúrate de que los Títulos de las imágenes coincidan EXACTAMENTE con los marcadores `{{imagen:Título}}` que pusiste en las estrategias. PARA MERMAID: 1. SIEMPRE usa comillas dobles para los textos de los nodos (ej: id[\"Texto con (paréntesis)\"]). 2. Asegúrate de que 'graph TD' esté en la PRIMERA línea y los nodos empiecen en la SEGUNDA línea."
+    instruction: [
+        "RECURSOS VIRTUALES PARA DOS FLUJOS:",
+        "Este prompt se usa en el flujo A (texto). El flujo B generará imágenes/diagramas.",
+        "",
+        "1) IMÁGENES (resources.images):",
+        "- Genera entre 2 y 4 imágenes clave si el tema lo amerita.",
+        "- Cada imagen debe incluir: id, title, prompt, moment.",
+        "- El 'moment' debe ser exactamente uno de: 'Inicio', 'Desarrollo', 'Cierre'.",
+        "- El 'prompt' debe ser detallado y apto para un modelo de imagen.",
+        "- Incluye explícitamente la regla: 'Text inside the image must be in Spanish'.",
+        "",
+        "2) SINCRONIZACIÓN CON TEXTO:",
+        "- Cuando una estrategia mencione usar una imagen generada, inserta el marcador {{imagen:Título Exacto}} en esa misma oración.",
+        "- El título dentro del marcador debe coincidir EXACTAMENTE con resources.images[].title.",
+        "",
+        "3) ORGANIZADOR MERMAID (resources.organizer):",
+        "- Incluye id, title, type y mermaidCode.",
+        "- Usa 'graph TD' o 'mindmap'.",
+        "- 'graph TD' o 'mindmap' debe estar en la PRIMERA línea.",
+        "- Los nodos deben usar comillas dobles en los textos.",
+        "- Incluye textFallback útil y una description breve.",
+        "",
+        "4) MATERIALES POR SECCIÓN (muy importante para el flujo B):",
+        "En cada bloque de materiales (inicio/desarrollo/cierre/tareaCasa) agrega ítems con prefijos:",
+        "• IMG_GEN: <Título Exacto>  (debe existir como imagen en resources.images)",
+        "• DIAG_PROMPT: <Título> :: <instrucción breve para un diagrama por sección>",
+        "• IMG_URL: <Título> :: <URL>  (solo si la URL es real y segura)",
+        "• VID_YT: <Título> :: <URL>   (solo si la URL es real y segura)",
+        "",
+        "5) NO INVENTES LINKS:",
+        "- Si no estás seguro del enlace, NO lo incluyas.",
+        "- En su lugar, escribe una descripción del recurso y/o un IMG_GEN o DIAG_PROMPT."
+    ].join("\n")
 };
+
 ```
 
 ## File: `prompts\prompt_secundaria.ts`
 ```ts
 export default {
-  "focus": "Enfócate en pensamiento crítico, indagación, análisis de fuentes, argumentación y autonomía. Promueve discusión, síntesis y aplicación en contextos reales.",
-  "materials": "Recursos tecnológicos, textos breves, laboratorios, datos, estudios de caso y organizadores visuales de mayor complejidad. Incluye materiales digitales listos para proyectar.",
-  "tone": "Retador, académico pero accesible, fomentando ciudadanía y rigor.",
-  "gradeRules": [
+  focus: [
+    "Pensamiento crítico, indagación, análisis de fuentes, argumentación y autonomía.",
+    "Discusión, síntesis y aplicación en contextos reales."
+  ].join(" "),
+
+  materials: [
+    "Recursos tecnológicos, textos breves, datos, estudios de caso y organizadores visuales más complejos.",
+    "Incluye materiales digitales listos para proyectar o analizar en aula."
+  ].join(" "),
+
+  tone: [
+    "Retador y académico pero accesible.",
+    "Fomenta ciudadanía, rigor y reflexión."
+  ].join(" "),
+
+  gradeRules: [
     "En 'propositoDidactico' incluye uno o dos propósitos coherentes con el tema.",
-    "Cada propósito debe conectar con un organizador visual o evidencia de aprendizaje.",
-    "En materiales sugiere al menos una imagen o recurso audiovisual externo confiable cuando el tema sea real.",
-    "Evita proponer imágenes generadas para contenidos históricos, científicos o artísticos específicos."
+    "Cada propósito debe conectar con evidencia de aprendizaje o un organizador visual.",
+    "Añade materiales por sección con prefijos parseables.",
+    "Evita URLs inventadas; solo usa enlaces si son totalmente verificables.",
+    "Puedes proponer imágenes generadas si representan modelos, esquemas o visualizaciones didácticas generales."
   ]
 };
+
 ```
 
 ## File: `schemas\sessionSchema.ts`
