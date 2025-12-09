@@ -6,6 +6,7 @@ import { copyToClipboard } from '../services/exportService';
 import { ArrowLeft, Printer, FileJson, BookOpen, Clock, Edit3, Check, MonitorPlay, Image as ImageIcon, Sparkles, RefreshCw, X } from 'lucide-react';
 import { MarkdownText, groupItemsByHeaders } from '../utils/markdownParser';
 import ResourcesPresenter from './ResourcesPresenter';
+import { fuzzyMatchImage } from '../utils/normalization';
 
 interface SessionResultProps {
     data: SessionData;
@@ -43,8 +44,11 @@ const SmartTextRenderer: React.FC<{
                 const match = part.match(/\{\{imagen:(.*?)\}\}/);
                 if (match) {
                     const titleRef = match[1].trim();
-                    // Find image case-insensitive
-                    const img = images?.find(i => i.title.toLowerCase() === titleRef.toLowerCase());
+                    // Refactor: Use fuzzy matching utility
+                    const imgMatch = fuzzyMatchImage(titleRef, images);
+                    
+                    // Find actual image object if ID matches
+                    const img = imgMatch ? images?.find(i => i.id === imgMatch.id) : undefined;
                     
                     if (img && img.base64Data) {
                         return (
@@ -57,8 +61,11 @@ const SmartTextRenderer: React.FC<{
                                 <span className="underline decoration-indigo-300 underline-offset-2">{img.title}</span>
                             </button>
                         );
+                    } else if (img && !img.base64Data) {
+                         // Fallback: Image exists in metadata but not generated yet (rare in this flow)
+                         return <span key={index} className="text-slate-400 italic mx-1 text-xs">[Generando: {titleRef}...]</span>;
                     } else {
-                        // Fallback if image not found or not ready
+                        // Fallback if image not found
                         return <span key={index} className="text-slate-500 italic mx-1">[{titleRef}]</span>;
                     }
                 }
@@ -159,12 +166,24 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
 
     const handleRegenerate = async (section: keyof SessionData, instructions: string) => {
         if (!confirm("¿Deseas regenerar esta sección? Se perderán los cambios manuales.")) return;
-        setRegenerating(section);
+        setRegenerating(section as string);
         try {
             const newData = await SessionGenerator.regenerateSection(data, section, instructions);
             setData(prev => ({ ...prev, [section]: newData }));
         } catch (e) {
             alert("Error regenerando sección.");
+        } finally {
+            setRegenerating(null);
+        }
+    };
+    
+    const handleRecoverImages = async () => {
+        setRegenerating('images');
+        try {
+            const newData = await SessionGenerator.recoverImages(data);
+            setData(newData);
+        } catch (e) {
+            alert("Error recuperando imágenes.");
         } finally {
             setRegenerating(null);
         }
@@ -189,6 +208,9 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
     const showSession = !isPrinting || printSection === 'session';
     const showFichaAula = !isPrinting || printSection === 'ficha_aula';
     const showFichaCasa = !isPrinting || printSection === 'ficha_casa';
+    
+    // Check if images need recovery (have prompt but missing data)
+    const hasMissingImages = data.resources?.images?.some(img => !img.base64Data && img.prompt);
 
     return (
         <>
@@ -211,8 +233,21 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                         <ArrowLeft className="w-5 h-5 mr-1" /> Volver
                     </button>
                     <div className="flex items-center gap-3">
-                        {data.resources && (
-                            <Tooltip text="Ver todos los recursos">
+                        {hasMissingImages && (
+                            <Tooltip text="Las imágenes no se guardaron en el historial para ahorrar espacio. Click para regenerarlas.">
+                                <button
+                                    onClick={handleRecoverImages}
+                                    disabled={!!regenerating}
+                                    className="hidden sm:flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-all"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
+                                    <span>Restaurar Imágenes</span>
+                                </button>
+                            </Tooltip>
+                        )}
+                    
+                        {data.resources && !hasMissingImages && (
+                            <Tooltip text="Ver todos los recursos (Organizador + Imágenes)">
                                 <button
                                     onClick={() => setShowPresentation(true)}
                                     className="hidden sm:flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-slate-900 text-white hover:bg-black transition-all shadow-md"
@@ -264,11 +299,25 @@ const SessionResult: React.FC<SessionResultProps> = ({ data: initialData, format
                 )}
 
                 {/* Mobile Presentation Button */}
-                {!showPresentation && data.resources && (
+                {!showPresentation && data.resources && !hasMissingImages && (
                     <div className="sm:hidden mx-4 mt-4">
                         <button onClick={() => setShowPresentation(true)} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-slate-900 text-white shadow-lg">
                             <MonitorPlay className="w-5 h-5" />
                             <span>Ver Recursos Virtuales</span>
+                        </button>
+                    </div>
+                )}
+                
+                {/* Mobile Recovery Button */}
+                {hasMissingImages && (
+                    <div className="sm:hidden mx-4 mt-4">
+                         <button 
+                            onClick={handleRecoverImages}
+                            disabled={!!regenerating}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-bold bg-amber-100 text-amber-800 border border-amber-200"
+                        >
+                            <RefreshCw className={`w-5 h-5 ${regenerating === 'images' ? 'animate-spin' : ''}`} />
+                            <span>Restaurar Imágenes</span>
                         </button>
                     </div>
                 )}

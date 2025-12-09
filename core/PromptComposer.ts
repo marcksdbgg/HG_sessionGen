@@ -50,7 +50,10 @@ export class PromptComposer {
       Nuevas instrucciones para el cambio:
       "${instructions}"
       
-      Mantén el mismo formato JSON estricto para esta sección.
+      IMPORTANTE: Devuelve un JSON con la clave raíz exactamente igual a "${section}".
+      Ejemplo: { "${section}": { ...contenido... } }
+      
+      Mantén el formato de esa sección válido según el esquema original.
     `;
   }
 }

@@ -49,6 +49,7 @@ export interface GeneratedImage {
 export interface VirtualResources {
   organizer: Organizer;
   images: GeneratedImage[];
+  diagrams?: Organizer[]; // Refactor: Support for additional diagrams
 }
 
 export interface SessionData {

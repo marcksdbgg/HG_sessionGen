@@ -80,7 +80,7 @@ export const SESSION_SCHEMA: Schema = {
                     description: { type: Type.STRING, description: "Breve explicación del gráfico." },
                     textFallback: { type: Type.STRING, description: "Versión texto plano del gráfico por si falla el render." }
                 },
-                required: ["title", "type", "mermaidCode", "description"]
+                required: ["id", "title", "type", "mermaidCode", "description"]
             },
             images: {
                 type: Type.ARRAY,
@@ -93,7 +93,23 @@ export const SESSION_SCHEMA: Schema = {
                         prompt: { type: Type.STRING, description: "Prompt descriptivo en inglés optimizado para generar la imagen (fotorealista o ilustración según nivel)." },
                         moment: { type: Type.STRING, description: "Inicio, Desarrollo o Cierre" }
                     },
-                    required: ["title", "prompt", "moment"]
+                    required: ["id", "title", "prompt", "moment"]
+                }
+            },
+            diagrams: {
+                type: Type.ARRAY,
+                description: "Lista de diagramas adicionales generados por solicitud en materiales.",
+                items: {
+                    type: Type.OBJECT,
+                    properties: {
+                        id: { type: Type.STRING },
+                        title: { type: Type.STRING },
+                        type: { type: Type.STRING },
+                        mermaidCode: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        textFallback: { type: Type.STRING }
+                    },
+                    required: ["id", "title", "type", "mermaidCode"]
                 }
             }
         },
