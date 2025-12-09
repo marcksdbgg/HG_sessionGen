@@ -36,7 +36,7 @@ interface DiagramPromptsType {
 }
 
 export class ResourceOrchestrator {
-    private static imageModelId = 'gemini-2.5-flash-preview-05-20';
+    private static imageModelId = 'gemini-2.5-flash-image';
     private static textModelId = 'gemini-2.5-flash';
 
     /**
