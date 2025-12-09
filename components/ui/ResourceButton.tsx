@@ -80,8 +80,8 @@ export const ImageButton: React.FC<{
         <button
             onClick={onClick}
             className={`inline-flex items-center gap-1.5 mx-1 px-2 py-0.5 border rounded-md text-sm font-semibold transition-all align-middle cursor-pointer ${isLoading
-                    ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-wait'
-                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:scale-105'
+                ? 'bg-slate-50 text-slate-500 border-slate-200 cursor-wait'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:scale-105'
                 }`}
         >
             {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />}
