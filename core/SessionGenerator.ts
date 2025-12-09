@@ -2,11 +2,12 @@ import { ai } from "../services/geminiService";
 import { SESSION_SCHEMA } from "../schemas/sessionSchema";
 import { PromptComposer } from "./PromptComposer";
 import { RetryPolicy } from "./RetryPolicy";
-import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateCallback } from "../types";
+import { SessionData, SessionRequest, GeneratedImage, Organizer, ResourceUpdateCallback, Resource } from "../types";
 import { Type, Schema } from "@google/genai";
 import { slugify } from "../utils/normalization";
 import { Prompts } from "../prompts";
 import { ExternalResourceResolver } from "./ExternalResourceResolver";
+import { ResourceOrchestrator } from "./ResourceOrchestrator";
 
 export class SessionGenerator {
     private static retryPolicy = new RetryPolicy();
@@ -31,8 +32,7 @@ export class SessionGenerator {
         const fullPrompt = PromptComposer.compose(request);
 
         // FLOW A: Text Pipeline - Generate Structure (~10-15s)
-        // Now passing the request object to handle image input
-        let sessionData = await this.generateTextSession(fullPrompt, request.image);
+        let sessionData = await this.generateTextSession(fullPrompt);
 
         // Defense in Depth: Validate IDs and Structure  
         sessionData = this.validateSessionData(sessionData);
@@ -117,24 +117,11 @@ export class SessionGenerator {
 
     // --- Private Helpers ---
 
-    private static async generateTextSession(prompt: string, imageBase64?: string): Promise<SessionData> {
+    private static async generateTextSession(prompt: string): Promise<SessionData> {
         return this.retryPolicy.execute(async () => {
-            const parts: any[] = [{ text: prompt }];
-
-            if (imageBase64) {
-                // Remove header if present to get pure base64
-                const base64Data = imageBase64.split(',')[1] || imageBase64;
-                parts.push({
-                    inlineData: {
-                        mimeType: 'image/jpeg', // Assuming jpeg/png, API is flexible
-                        data: base64Data
-                    }
-                });
-            }
-
             const response = await ai.models.generateContent({
                 model: this.textModelId,
-                contents: [{ role: 'user', parts: parts }],
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 config: {
                     responseMimeType: "application/json",
                     responseSchema: SESSION_SCHEMA,
@@ -148,6 +135,27 @@ export class SessionGenerator {
     }
 
     private static validateSessionData(data: SessionData): SessionData {
+        // Validate polymorphic resources array
+        if (data.resources?.resources) {
+            data.resources.resources.forEach((resource, idx) => {
+                if (!resource.id) {
+                    resource.id = `${resource.type.toLowerCase()}-${idx}-${slugify(resource.title).slice(0, 15)}`;
+                }
+                // Set initial status to pending
+                if (!resource.status) {
+                    resource.status = 'pending';
+                }
+            });
+        } else {
+            // Initialize empty resources array if missing
+            if (!data.resources) {
+                data.resources = { resources: [] };
+            } else if (!data.resources.resources) {
+                data.resources.resources = [];
+            }
+        }
+
+        // Legacy validation (for backward compatibility)
         if (data.resources?.organizer && !data.resources.organizer.id) {
             data.resources.organizer.id = `org-${slugify(data.sessionTitle).slice(0, 10)}`;
         }
@@ -166,6 +174,7 @@ export class SessionGenerator {
 
     /**
      * Background resource enrichment loop.
+     * Now uses ResourceOrchestrator for polymorphic resources (Flow B).
      */
     private static async enrichResourcesBackground(
         data: SessionData,
@@ -174,7 +183,16 @@ export class SessionGenerator {
     ): Promise<void> {
         const resources = data.resources;
 
-        // 1. Generate images (Parallel)
+        // FLOW B: Process polymorphic resources via code-controlled orchestrator
+        const orchestratorPromise = onUpdate && resources.resources && resources.resources.length > 0
+            ? ResourceOrchestrator.processAll(
+                resources.resources,
+                { nivel: request.nivel, grado: request.grado, area: request.area },
+                onUpdate
+            )
+            : Promise.resolve();
+
+        // Legacy: Generate images (Parallel) - for backward compatibility
         const imagePromises = (resources.images || []).map(async (img) => {
             if (img.base64Data) {
                 onUpdate?.('image', img.id, { ...img, isLoading: false });
@@ -189,15 +207,15 @@ export class SessionGenerator {
             }
         });
 
-        // 2. Generate extra diagrams (Parallel)
+        // Legacy: Generate extra diagrams (Parallel)
         const diagramPromises = this.scanAndGenerateDiagramsWithCallback(data, request, onUpdate);
 
-        // 3. Resolve External Links (VID_YT / IMG_URL with SEARCH:)
-        // We assume scanAndResolveLinksWithCallback handles the parallel logic internally
+        // Legacy: Resolve External Links (VID_YT / IMG_URL with SEARCH:)
         const linkPromises = this.scanAndResolveLinksWithCallback(data, onUpdate);
 
         // Wait for all to finish (fire-and-forget from caller perspective)
         await Promise.all([
+            orchestratorPromise,
             Promise.allSettled(imagePromises),
             diagramPromises,
             linkPromises
@@ -205,7 +223,7 @@ export class SessionGenerator {
     }
 
     private static async scanAndResolveLinksWithCallback(
-        data: SessionData, 
+        data: SessionData,
         onUpdate?: ResourceUpdateCallback
     ): Promise<void> {
         // Sections to scan
@@ -223,7 +241,7 @@ export class SessionGenerator {
         sections.forEach(section => {
             section.items.forEach((item, index) => {
                 const searchMatch = item.match(/^(VID_YT|IMG_URL):\s*(.+?)\s*::\s*SEARCH:\s*(.+)$/i);
-                
+
                 if (searchMatch) {
                     const typeTag = searchMatch[1].toUpperCase() as 'VID_YT' | 'IMG_URL';
                     const title = searchMatch[2];
@@ -236,7 +254,7 @@ export class SessionGenerator {
                             // Replace item in the array
                             const newItem = `${typeTag}: ${resolved.title} :: ${resolved.url}`;
                             section.items[index] = newItem; // Update in place for local data reference
-                            
+
                             // Notify UI to update specific section
                             onUpdate?.('section_update', `${section.key}-${section.subKey}`, {
                                 section: section.key,

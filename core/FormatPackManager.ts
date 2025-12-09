@@ -8,18 +8,6 @@ export class FormatPackManager {
       name: 'MINEDU Clásico',
       description: 'Formato estándar tabular detallado.',
       template: Templates.minedu
-    },
-    compacto: {
-      id: 'compacto',
-      name: 'Compacto',
-      description: 'Ahorro de papel, estilo lista.',
-      template: Templates.compacto
-    },
-    rural: {
-      id: 'rural',
-      name: 'Rural Simplificado',
-      description: 'Letra grande, secciones esenciales.',
-      template: Templates.rural
     }
   };
 
