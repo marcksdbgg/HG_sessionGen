@@ -74,20 +74,13 @@ const SessionNavbar: React.FC<SessionNavbarProps> = ({
                     </button>
                 </Tooltip>
 
-                <div className="relative group">
-                    <button className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all">
-                        <Printer className="w-4 h-4" /> <span className="hidden sm:inline">Exportar</span>
-                    </button>
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-2xl border border-slate-100 p-2 hidden group-hover:block z-30">
-                        <button onClick={() => onPrint('session')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📄 PDF Sesión</button>
-                        <button onClick={() => onPrint('ficha_aula')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">📝 PDF Ficha Aula</button>
-                        <button onClick={() => onPrint('ficha_casa')} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors">🏠 PDF Ficha Casa</button>
-                        <button onClick={onCopyLatex} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
-                            <span>LaTeX</span>
-                            <FileJson className="w-3 h-3 text-slate-400" />
-                        </button>
-                    </div>
-                </div>
+                <button 
+                    onClick={() => onPrint('session')}
+                    className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-md transition-all"
+                >
+                    <Printer className="w-4 h-4" /> 
+                    <span className="hidden sm:inline">Exportar PDF</span>
+                </button>
             </div>
         </div>
     );

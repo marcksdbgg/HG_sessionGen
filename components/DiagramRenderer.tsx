@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Organizer, OrganizerType } from '../types';
-import { AlertCircle, Download, Maximize2, Minimize2, RefreshCw, Copy, Check } from 'lucide-react';
+import { AlertCircle, Download, Maximize2, Minimize2, RefreshCw, Copy, Check, ZoomIn, ZoomOut, Move } from 'lucide-react';
 
 // Mermaid configuration
 declare const mermaid: any;
@@ -14,6 +14,8 @@ interface DiagramRendererProps {
     organizer: Organizer;
     className?: string;
     onError?: (error: string) => void;
+    hideDescription?: boolean;
+    enableZoom?: boolean;
 }
 
 // Type-specific styling configurations
@@ -31,13 +33,25 @@ const TYPE_STYLES: Record<OrganizerType, { bgColor: string; borderColor: string;
     'otro': { bgColor: 'bg-slate-50', borderColor: 'border-slate-200', icon: '📐' }
 };
 
-const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className = '', onError }) => {
+const DiagramRenderer: React.FC<DiagramRendererProps> = ({ 
+    organizer, 
+    className = '', 
+    onError,
+    hideDescription = false,
+    enableZoom = false
+}) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const [rendered, setRendered] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [copied, setCopied] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
+
+    // Zoom & Pan State
+    const [scale, setScale] = useState(1);
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStartRef = useRef({ x: 0, y: 0 });
 
     const style = TYPE_STYLES[organizer.type] || TYPE_STYLES['otro'];
 
@@ -49,17 +63,15 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
                 theme: 'default',
                 securityLevel: 'loose',
                 fontFamily: '"Plus Jakarta Sans", sans-serif',
-                fontSize: 14,
+                fontSize: 16, // Slightly larger font for readability
                 flowchart: {
-                    useMaxWidth: true,
+                    useMaxWidth: false, // Important for zoom
                     htmlLabels: true,
                     curve: 'basis',
-                    padding: 20,
-                    nodeSpacing: 50,
-                    rankSpacing: 50
+                    padding: 20
                 },
                 mindmap: {
-                    useMaxWidth: true,
+                    useMaxWidth: false,
                     padding: 20
                 },
                 themeVariables: {
@@ -82,134 +94,107 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
 
         try {
             setError(null);
+            // Reset zoom on re-render
+            setScale(1);
+            setPosition({ x: 0, y: 0 });
 
-            // Check if mermaid is loaded
             if (typeof mermaid === 'undefined') {
                 throw new Error('Mermaid library not loaded');
             }
 
             initMermaid();
 
-            // Clean and validate mermaid code
             let cleanCode = organizer.mermaidCode
-                .replace(/```mermaid/g, '') // Remove markdown code blocks if present
+                .replace(/```mermaid/g, '')
                 .replace(/```/g, '')
                 .trim();
                 
-            // Fix common issue: quoted newlines literal "\n" which some parsers output
             cleanCode = cleanCode.replace(/\\n/g, '\n');
-
-            // Fix: Ensure graph declaration is on its own line
             cleanCode = cleanCode.replace(/^(graph|flowchart)\s+([A-Za-z0-9]+)\s+([^\n])/, '$1 $2\n$3');
             cleanCode = cleanCode.replace(/^mindmap\s+([^\n])/, 'mindmap\n$1');
 
-            // Defensive cleanup: Remove lines that are likely titles or plain text (heuristics)
             const lines = cleanCode.split('\n');
             cleanCode = lines.filter(line => {
                 const trimmed = line.trim();
                 if (!trimmed) return true;
-                
-                // Allow standard mermaid declarations
                 if (/^(graph|flowchart|mindmap|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie)/.test(trimmed)) return true;
-                
-                // Allow node definitions and relationships
                 if (/[\[\(\{\>\|]/.test(trimmed)) return true;
-                
-                // Allow indented lines (subgraphs/mindmaps)
                 if (line.startsWith('  ') || line.startsWith('\t')) return true;
-
-                // Remove lines that look like titles (contain colon, no node syntax)
                 if (trimmed.includes(':') && !/[\[\(\{\>\|]/.test(trimmed)) return false;
-
-                // Remove lines that are comma-separated words (invalid syntax outside [] or {})
-                // e.g. "Migración, Emigración, Inmigración"
                 if (!trimmed.includes('-->') && !trimmed.includes('---') && trimmed.includes(',') && !/[\[\(\{\>\|]/.test(trimmed)) return false;
-
                 return true;
             }).join('\n');
 
-            // Clear previous content
             containerRef.current.innerHTML = '';
-
-            // Create unique ID for this diagram
             const diagramId = `diagram-${organizer.id}-${Date.now()}`;
-
-            // Render the diagram
             const { svg } = await mermaid.render(diagramId, cleanCode);
-
-            // Insert SVG with responsive sizing
             containerRef.current.innerHTML = svg;
 
-            // Style the SVG for high resolution
+            // Remove hardcoded dimensions from SVG to allow scaling
             const svgElement = containerRef.current.querySelector('svg');
             if (svgElement) {
-                svgElement.style.maxWidth = '100%';
+                svgElement.removeAttribute('height');
+                // We keep width 100% relative to the transformer container
+                svgElement.style.width = '100%'; 
                 svgElement.style.height = 'auto';
                 svgElement.style.minHeight = '200px';
-                svgElement.setAttribute('preserveAspectRatio', 'xMidYMid meet');
             }
 
             setRendered(true);
         } catch (err: any) {
             console.error('Mermaid render error:', err);
-            const errorMsg = err.message || 'Error rendering diagram';
-            setError(errorMsg);
-            onError?.(errorMsg);
-
-            // Show fallback text
-            if (containerRef.current && organizer.textFallback) {
-                containerRef.current.innerHTML = `
-          <div class="p-4 bg-slate-100 rounded-lg text-sm text-slate-700 whitespace-pre-wrap font-mono">
-            ${organizer.textFallback}
-          </div>
-        `;
-            }
+            setError(err.message || 'Error rendering diagram');
+            onError?.(err.message);
         }
     }, [organizer, initMermaid, onError]);
 
-    // Effect to load Mermaid and render
     useEffect(() => {
-        // Check if mermaid is already loaded
         if (typeof mermaid !== 'undefined') {
             renderDiagram();
-            return;
+        } else {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+            script.async = true;
+            script.onload = () => renderDiagram();
+            script.onerror = () => setError('Failed to load Mermaid library');
+            document.head.appendChild(script);
         }
-
-        // Load Mermaid from CDN
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
-        script.async = true;
-        script.onload = () => {
-            renderDiagram();
-        };
-        script.onerror = () => {
-            setError('Failed to load Mermaid library');
-        };
-        document.head.appendChild(script);
-
-        return () => {
-            // Cleanup if needed
-        };
     }, [renderDiagram, retryCount]);
 
-    // Download as SVG
-    const handleDownloadSVG = () => {
-        const svgElement = containerRef.current?.querySelector('svg');
-        if (!svgElement) return;
+    // --- ZOOM & PAN HANDLERS ---
 
-        const svgData = new XMLSerializer().serializeToString(svgElement);
-        const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${organizer.title.replace(/\s+/g, '_')}.svg`;
-        link.click();
-
-        URL.revokeObjectURL(url);
+    const handleWheel = (e: React.WheelEvent) => {
+        if (!enableZoom) return;
+        // e.preventDefault(); // Note: React synthetic events can't preventDefault on wheel easily if passive
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const newScale = Math.min(Math.max(0.5, scale * delta), 5);
+        setScale(newScale);
     };
 
-    // Download as PNG (high resolution)
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (!enableZoom) return;
+        setIsDragging(true);
+        dragStartRef.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!isDragging || !enableZoom) return;
+        setPosition({
+            x: e.clientX - dragStartRef.current.x,
+            y: e.clientY - dragStartRef.current.y
+        });
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    const zoomIn = () => setScale(s => Math.min(s * 1.2, 5));
+    const zoomOut = () => setScale(s => Math.max(s * 0.8, 0.5));
+    const resetZoom = () => { setScale(1); setPosition({ x: 0, y: 0 }); };
+
+    // --- OTHER HANDLERS ---
+
     const handleDownloadPNG = () => {
         const svgElement = containerRef.current?.querySelector('svg');
         if (!svgElement) return;
@@ -218,19 +203,18 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const img = new Image();
-
-        // High resolution: 2x scale
         const scale = 2;
         const svgRect = svgElement.getBoundingClientRect();
-        canvas.width = svgRect.width * scale;
-        canvas.height = svgRect.height * scale;
+        // Use natural size if possible, else rect
+        canvas.width = (svgRect.width || 800) * scale;
+        canvas.height = (svgRect.height || 600) * scale;
 
         img.onload = () => {
             if (ctx) {
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.scale(scale, scale);
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, canvas.width / scale, canvas.height / scale);
 
                 canvas.toBlob((blob) => {
                     if (blob) {
@@ -241,36 +225,24 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
                         link.click();
                         URL.revokeObjectURL(url);
                     }
-                }, 'image/png', 1.0);
+                }, 'image/png');
             }
         };
-
         img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
     };
 
-    // Copy Mermaid code
     const handleCopyCode = () => {
         navigator.clipboard.writeText(organizer.mermaidCode);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
 
-    // Retry render
-    const handleRetry = () => {
-        setRetryCount(prev => prev + 1);
-        setError(null);
-        setRendered(false);
-    };
-
-    // Toggle fullscreen
-    const toggleFullscreen = () => {
-        setIsFullscreen(!isFullscreen);
-    };
+    const toggleFullscreen = () => setIsFullscreen(!isFullscreen);
 
     return (
-        <div className={`${className} ${isFullscreen ? 'fixed inset-0 z-50 bg-white p-6 overflow-auto' : ''}`}>
+        <div className={`${className} ${isFullscreen ? 'fixed inset-0 z-50 bg-white p-6 overflow-hidden flex flex-col' : ''}`}>
             {/* Header */}
-            <div className={`flex items-center justify-between px-4 py-3 ${style.bgColor} border-b ${style.borderColor} rounded-t-xl`}>
+            <div className={`flex items-center justify-between px-4 py-3 ${style.bgColor} border-b ${style.borderColor} rounded-t-xl shrink-0`}>
                 <div className="flex items-center gap-2">
                     <span className="text-xl">{style.icon}</span>
                     <div>
@@ -281,79 +253,87 @@ const DiagramRenderer: React.FC<DiagramRendererProps> = ({ organizer, className 
 
                 {/* Actions */}
                 <div className="flex items-center gap-1">
-                    <button
-                        onClick={handleCopyCode}
-                        className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors"
-                        title="Copiar código Mermaid"
-                    >
+                    <button onClick={handleCopyCode} className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors">
                         {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
                     </button>
-                    <button
-                        onClick={handleDownloadPNG}
-                        className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors"
-                        title="Descargar PNG"
-                    >
+                    <button onClick={handleDownloadPNG} className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors">
                         <Download className="w-4 h-4" />
                     </button>
-                    <button
-                        onClick={toggleFullscreen}
-                        className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors"
-                        title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-                    >
+                    <button onClick={toggleFullscreen} className="p-2 text-slate-500 hover:text-slate-700 hover:bg-white/50 rounded-lg transition-colors">
                         {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </button>
                 </div>
             </div>
 
             {/* Diagram container */}
-            <div className={`p-6 bg-white border-x border-b ${style.borderColor} rounded-b-xl min-h-[300px] flex items-center justify-center`}>
-                {error ? (
-                    <div className="text-center space-y-4">
-                        <div className="flex items-center justify-center gap-2 text-amber-600">
-                            <AlertCircle className="w-5 h-5" />
-                            <span className="font-medium">Error en el diagrama</span>
+            <div 
+                className={`relative bg-white border-x border-b ${style.borderColor} rounded-b-xl flex-1 overflow-hidden select-none`}
+                style={{ minHeight: isFullscreen ? '0' : '300px' }}
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+            >
+                {/* Zoom Controls Overlay */}
+                {enableZoom && rendered && !error && (
+                    <div className="absolute bottom-4 right-4 z-10 flex gap-2 bg-white/90 backdrop-blur shadow-lg border border-slate-200 p-1.5 rounded-xl">
+                        <button onClick={zoomOut} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600" title="Alejar"><ZoomOut className="w-4 h-4"/></button>
+                        <button onClick={resetZoom} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 font-mono text-xs w-12">{Math.round(scale * 100)}%</button>
+                        <button onClick={zoomIn} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600" title="Acercar"><ZoomIn className="w-4 h-4"/></button>
+                        <div className="w-px bg-slate-200 mx-1"></div>
+                        <div className="flex items-center px-2 text-xs text-slate-400 gap-1">
+                            <Move className="w-3 h-3"/> <span className="hidden sm:inline">Arrastrar</span>
                         </div>
-                        <p className="text-sm text-slate-500">{error}</p>
-                        <button
-                            onClick={handleRetry}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors mx-auto"
-                        >
-                            <RefreshCw className="w-4 h-4" />
-                            Reintentar
-                        </button>
-                        {organizer.textFallback && (
-                            <div className="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-700 whitespace-pre-wrap font-mono text-left max-w-full overflow-auto">
-                                {organizer.textFallback}
+                    </div>
+                )}
+
+                {error ? (
+                    <div className="absolute inset-0 flex items-center justify-center p-6">
+                        <div className="text-center space-y-4 max-w-md">
+                            <div className="flex items-center justify-center gap-2 text-amber-600">
+                                <AlertCircle className="w-5 h-5" />
+                                <span className="font-medium">Error en el diagrama</span>
                             </div>
-                        )}
+                            <p className="text-sm text-slate-500">{error}</p>
+                            <button onClick={() => setRetryCount(c => c + 1)} className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors mx-auto">
+                                <RefreshCw className="w-4 h-4" /> Reintentar
+                            </button>
+                            {organizer.textFallback && (
+                                <div className="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-700 font-mono text-left overflow-auto max-h-40">
+                                    {organizer.textFallback}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
-                    <div
-                        ref={containerRef}
-                        className="w-full overflow-auto diagram-container"
-                        style={{ minHeight: '250px' }}
-                    />
+                    <div className="w-full h-full flex items-center justify-center overflow-hidden">
+                        <div 
+                            ref={containerRef}
+                            className={`origin-center transition-transform duration-75 ease-out ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                            style={{ 
+                                transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+                                width: '100%', // Ensure the inner div takes full width to allow centering
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                            }}
+                        />
+                    </div>
                 )}
             </div>
 
-            {/* Description/Notes */}
-            {(organizer.description || organizer.notes) && rendered && (
+            {/* Description/Notes (Conditional) */}
+            {!hideDescription && (organizer.description || organizer.notes) && rendered && !isFullscreen && (
                 <div className="mt-3 p-4 bg-slate-50 rounded-xl text-sm">
-                    {organizer.description && (
-                        <p className="text-slate-700">{organizer.description}</p>
-                    )}
-                    {organizer.notes && (
-                        <p className="text-slate-500 mt-2 italic">📝 {organizer.notes}</p>
-                    )}
+                    {organizer.description && <p className="text-slate-700">{organizer.description}</p>}
+                    {organizer.notes && <p className="text-slate-500 mt-2 italic">📝 {organizer.notes}</p>}
                 </div>
             )}
 
-            {/* Fullscreen close button */}
+            {/* Fullscreen Close */}
             {isFullscreen && (
-                <button
-                    onClick={toggleFullscreen}
-                    className="fixed top-4 right-4 p-3 bg-slate-800 text-white rounded-full shadow-xl hover:bg-slate-700 transition-colors z-50"
-                >
+                <button onClick={toggleFullscreen} className="fixed top-4 right-4 p-3 bg-slate-800 text-white rounded-full shadow-xl hover:bg-slate-700 transition-colors z-50">
                     <Minimize2 className="w-6 h-6" />
                 </button>
             )}
